@@ -289,13 +289,15 @@ void Dispatcher::run() {
 }
 
 void Dispatcher::init() {
-	// std::cout << "Initializing devices..." << std::endl;
-	// std::cout << "  This should take less than a minute. The number of objects initialized on each" << std::endl;
-	// std::cout << "  device is equal to inverse-size * inverse-multiple. To lower" << std::endl;
-	// std::cout << "  initialization time (and memory footprint) I suggest lowering the" << std::endl;
-	// std::cout << "  inverse-multiple first. You can do this via the -I switch. Do note that" << std::endl;
-	// std::cout << "  this might negatively impact your performance." << std::endl;
-	// std::cout << std::endl;
+	if (m_mode.name != "reverse" && m_mode.name != "hashTable") {
+		std::cout << "Initializing devices..." << std::endl;
+		std::cout << "  This should take less than a minute. The number of objects initialized on each" << std::endl;
+		std::cout << "  device is equal to inverse-size * inverse-multiple. To lower" << std::endl;
+		std::cout << "  initialization time (and memory footprint) I suggest lowering the" << std::endl;
+		std::cout << "  inverse-multiple first. You can do this via the -I switch. Do note that" << std::endl;
+		std::cout << "  this might negatively impact your performance." << std::endl;
+		std::cout << std::endl;
+	}
 
 	const auto deviceCount = m_vDevices.size();
 	m_sizeInitTotal = m_size * deviceCount;
@@ -488,8 +490,10 @@ void Dispatcher::initContinue(Device & d) {
 	const size_t sizeInitLimit = m_size / 20;
 
 	// Print progress
-	// const size_t percentDone = m_sizeInitDone * 100 / m_sizeInitTotal;
-	// std::cout << "  " << percentDone << "%\r" << std::flush;
+	if (m_mode.name != "reverse" && m_mode.name != "hashTable") {
+		const size_t percentDone = m_sizeInitDone * 100 / m_sizeInitTotal;
+		std::cout << "  " << percentDone << "%\r" << std::flush;
+	}
 
 	if (sizeLeft) {
 		cl_event event;
