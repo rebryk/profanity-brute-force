@@ -3,3 +3,7 @@
 *.so
 cache-opencl.*
 bin
+seeds/
+.vscode/
+cache/
+.DS_Store/
