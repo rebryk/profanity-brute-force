@@ -16,7 +16,7 @@
 static const size_t STEPS_OFFSET = 3;
 static const size_t HASH_TABLE_SIZE = 1U << 30; // 1U << 30;
 static const size_t HASH_TABLE_SET_SIZE = 1 << 25; // 1 << 25;
-static const size_t HASH_TABLE_JOB_SIZE = 1 << 25; // 1 << 18;
+static const size_t HASH_TABLE_JOB_SIZE = 1 << 18; // 1 << 18;
 
 static std::string toHex(const uint8_t * const s, const size_t len) {
 	std::string b("0123456789abcdef");
@@ -329,6 +329,7 @@ void Dispatcher::initBegin(Device & d) {
 	d.m_round = 0;
 	d.m_sizeInitialized = 0;
 	d.m_sizeHashTableInitialized = 0;
+	d.m_iterHashTableInitialized = 0;
 	d.m_addressToIndex.clear();
 
 	// Set mode data
@@ -414,75 +415,40 @@ Dispatcher::Device::Address::Address(): a(0), b(0), c(0), d(0), e(0) {}
 
 Dispatcher::Device::Address::Address(uint a, uint b, uint c, uint d, uint e): a(a), b(b), c(c), d(d), e(e) {}
 
+Dispatcher::Device::Address::Address(uint x[]): a(x[0]), b(x[1]), c(x[2]), d(x[3]), e(x[4]) {}
+
 bool Dispatcher::Device::Address::operator <(const Address& x) const {
 	return (a < x.a) || (a == x.a && b < x.b) || (a == x.a && b == x.b && c < x.c) || (a == x.a && b == x.b && c == x.c && d < x.d) || (a == x.a && b == x.b && c == x.c && d == x.d && e < x.e);
 }
 
 void Dispatcher::initHashTableContinue(Device & d) {
-	size_t sizeLeft = m_HashTableSize - d.m_sizeHashTableInitialized;
-	
-	if (sizeLeft == 0 && d.m_sizeInitialized > 0) {
-		initContinue(d);
-		return;
-	}
+	cl_event event;
+	d.m_memPublicAddress.read(false, &event);
 
-	const size_t iterDone = d.m_sizeHashTableInitialized / HASH_TABLE_JOB_SIZE;
-	const size_t iterTotal = m_HashTableSize / HASH_TABLE_JOB_SIZE;
-	
-	// const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - timeStart).count();
-	// const size_t remaining = (iterTotal - iterDone) * milliseconds / iterDone / 1000;
-	// const size_t percentDone = m_sizeHashTableInitDone * 100 / m_sizeHashTableInitTotal;
-	// std::cout << "  " << percentDone << "% (remaining " << remaining << "s)" << "\r" << std::flush;
+	const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeStart).count();
+	const float progress = m_sizeHashTableInitDone * 100.0 / m_sizeHashTableInitTotal;
+	const size_t remaining = (100.0 - progress) * (seconds / progress);
+	std::cout << "  " << size_t(progress) << "% (remaining " << remaining << ")" << "\r" << std::flush;
 
-	if (iterDone > 0) {
-		d.m_memPublicAddress.read(true);
-		
-		const size_t offset = d.m_batchIndex * m_HashTableSize + (iterDone - 1) * HASH_TABLE_JOB_SIZE;
-		for (size_t i = 0; i < HASH_TABLE_JOB_SIZE; ++i) {
-			Device::Address key(
-				d.m_memPublicAddress[i * 5 + 0],
-				d.m_memPublicAddress[i * 5 + 1],
-				d.m_memPublicAddress[i * 5 + 2],
-				d.m_memPublicAddress[i * 5 + 3],
-				d.m_memPublicAddress[i * 5 + 4]
-			);
-			d.m_addressToIndex[key] = offset + i;
-		}
-	}
-
-	if (sizeLeft) {
-		cl_event event;
+	const size_t sizeLeft = m_HashTableSize - d.m_sizeHashTableInitialized;
+	if (sizeLeft && d.m_iterHashTableInitialized > 0) {
 		const size_t sizeRun = std::min(HASH_TABLE_JOB_SIZE, std::min(sizeLeft, m_worksizeMax));
 
 		// TODO: load data if cache is enabled
-		const size_t offset = d.m_batchIndex * m_HashTableSize + HASH_TABLE_JOB_SIZE * iterDone;
-		for (size_t i = 0; i < HASH_TABLE_JOB_SIZE; ++i) {
-			d.m_memSeed[i] = getPrivateKey(offset + i);
-		}
-		d.m_memSeed.write(true);
+		d.m_memSeed.write(false);
 	
-		const auto resEnqueue = clEnqueueNDRangeKernel(d.m_clQueue, d.m_kernelInitHashTable, 1, &d.m_sizeHashTableInitialized, &sizeRun, NULL, 0, NULL, &event);
+		const auto resEnqueue = clEnqueueNDRangeKernel(d.m_clQueue, d.m_kernelInitHashTable, 1, &d.m_sizeHashTableInitialized, &sizeRun, NULL, 0, NULL, NULL);
 		OpenCLException::throwIfError("kernel queueing failed during initilization", resEnqueue);
-
-		clFlush(d.m_clQueue); 
 
 		std::lock_guard<std::mutex> lock(m_mutex);
 		d.m_sizeHashTableInitialized += sizeRun;
 		m_sizeHashTableInitDone += sizeRun;
-
-		const auto resCallback = clSetEventCallback(event, CL_COMPLETE, staticCallback, &d);
-		OpenCLException::throwIfError("failed to set custom callback during hash table initialization", resCallback);
-	} else {
-		// const std::string strOutput = "  GPU" + toString(d.m_index) + " hash table initialized";
-		// std::cout << strOutput << std::endl;
-		
-		if (m_mode.name == "hashTable") {
-			// TODO: save data
-			clSetUserEventStatus(d.m_eventFinished, CL_COMPLETE);
-		} else if (m_mode.name == "reverse") {
-			initContinue(d);
-		}
 	}
+	
+	clFlush(d.m_clQueue); 
+
+	const auto resCallback = clSetEventCallback(event, CL_COMPLETE, staticCallback, &d);
+	OpenCLException::throwIfError("failed to set custom callback during hash table initialization", resCallback);
 }
 
 void Dispatcher::initContinue(Device & d) {
@@ -655,7 +621,42 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 	}
 	else if (d.m_eventFinished != NULL) {
 		if (d.m_mode.name == "reverse" || d.m_mode.name == "hashTable") {
-			initHashTableContinue(d);
+			const size_t iterTotal = m_HashTableSize / HASH_TABLE_JOB_SIZE;
+			const size_t iterDone = d.m_sizeHashTableInitialized / HASH_TABLE_JOB_SIZE;		
+
+			if (d.m_mode.cache) {
+				if (d.m_iterHashTableInitialized == 0) {
+					// TODO: load hashmap
+				}
+
+				if (iterDone < iterTotal) {
+					// TODO: load bitset
+				}
+			} else {
+				if (d.m_iterHashTableInitialized > 1) {
+					const size_t offset = d.m_batchIndex * m_HashTableSize + (d.m_iterHashTableInitialized - 2) * HASH_TABLE_JOB_SIZE;
+					for (size_t i = 0; i < HASH_TABLE_JOB_SIZE; ++i) {
+						Device::Address key(&d.m_memPublicAddress[i * 5]);
+						d.m_addressToIndex[key] = offset + i;
+					}
+				}
+
+				if (iterDone < iterTotal) {
+					const size_t offset = d.m_batchIndex * m_HashTableSize + HASH_TABLE_JOB_SIZE * iterDone;
+					for (size_t i = 0; i < HASH_TABLE_JOB_SIZE; ++i) {
+						d.m_memSeed[i] = getPrivateKey(offset + i);
+					}
+				}
+			}
+
+			if (d.m_iterHashTableInitialized <= iterTotal) {
+				++d.m_iterHashTableInitialized;
+				initHashTableContinue(d);
+			} else if (m_mode.name == "hashTable") {
+				clSetUserEventStatus(d.m_eventFinished, CL_COMPLETE);
+			} else {
+				initContinue(d);
+			}
 		} else {
 			initContinue(d);
 		}

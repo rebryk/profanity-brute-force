@@ -90,10 +90,12 @@ class Dispatcher {
 				
 				Address();
 				Address(uint a, uint b, uint c, uint d, uint e);
+				Address(uint x[]);
 				bool operator <(const Address& x) const;
 			};
 
 			// HashTable Initialization
+			size_t m_iterHashTableInitialized;
 			size_t m_sizeHashTableInitialized;
 			std::map<Address, int> m_addressToIndex;
 		};
