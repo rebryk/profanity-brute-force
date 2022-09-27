@@ -9,8 +9,14 @@
 #include <random>
 #include <thread>
 #include <algorithm>
+#include <climits>
 
 #include "precomp.hpp"
+
+static const size_t STEPS_OFFSET = 3;
+static const size_t HASH_TABLE_SIZE = 1U << 30; // 1U << 30;
+static const size_t HASH_TABLE_SET_SIZE = 1 << 25; // 1 << 25;
+static const size_t HASH_TABLE_JOB_SIZE = 1 << 25; // 1 << 18;
 
 static std::string toHex(const uint8_t * const s, const size_t len) {
 	std::string b("0123456789abcdef");
@@ -26,29 +32,37 @@ static std::string toHex(const uint8_t * const s, const size_t len) {
 	return r;
 }
 
+cl_ulong4 restorePrivateKey(cl_ulong4 seed, cl_uint id, cl_ulong round) {
+	cl_ulong4 privateKey;
+	cl_ulong carry = 0;
+	privateKey.s[0] = seed.s[0] + round; carry = privateKey.s[0] < round;
+	privateKey.s[1] = seed.s[1] + carry; carry = !privateKey.s[1];
+	privateKey.s[2] = seed.s[2] + carry; carry = !privateKey.s[2];
+	privateKey.s[3] = seed.s[3] + carry + id;
+	return privateKey;
+}
+
+std::string privateKeyToStr(cl_ulong4 privateKey) {
+	std::ostringstream ss;
+	ss << std::hex << std::setfill('0');
+	ss << std::setw(16) << privateKey.s[3] << std::setw(16) << privateKey.s[2] << std::setw(16) << privateKey.s[1] << std::setw(16) << privateKey.s[0];
+	return ss.str();
+}
+
 static void printResult(cl_ulong4 seed, cl_ulong round, result r, cl_uchar score, const std::chrono::time_point<std::chrono::steady_clock> & timeStart, const Mode & mode) {
 	// Time delta
 	const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeStart).count();
 
 	// Format private key
-	cl_ulong carry = 0;
-	cl_ulong4 seedRes;
-
-	seedRes.s[0] = seed.s[0] + round; carry = seedRes.s[0] < round;
-	seedRes.s[1] = seed.s[1] + carry; carry = !seedRes.s[1];
-	seedRes.s[2] = seed.s[2] + carry; carry = !seedRes.s[2];
-	seedRes.s[3] = seed.s[3] + carry + r.foundId;
-
-	std::ostringstream ss;
-	ss << std::hex << std::setfill('0');
-	ss << std::setw(16) << seedRes.s[3] << std::setw(16) << seedRes.s[2] << std::setw(16) << seedRes.s[1] << std::setw(16) << seedRes.s[0];
-	const std::string strPrivate = ss.str();
+	cl_ulong4 privateKey = restorePrivateKey(seed, r.foundId, round);
+	const std::string strPrivate = privateKeyToStr(privateKey);
 
 	// Format public key
 	const std::string strPublic = toHex(r.foundHash, 20);
 
 	// Print
 	const std::string strVT100ClearLine = "\33[2K\r";
+	// std::cout << "id: " << r.foundId << ", round: " << int(round) << std::endl;
 	std::cout << strVT100ClearLine << "  Time: " << std::setw(5) << seconds << "s Score: " << std::setw(2) << (int) score << " Private: 0x" << strPrivate << ' ';
 
 	std::cout << mode.transformName();
@@ -108,7 +122,8 @@ cl_ulong4 Dispatcher::Device::createSeed() {
 #else
 	// Randomize private keys
 	std::random_device rd;
-	std::mt19937_64 eng(rd());
+	uint seed = rd();
+	std::mt19937_64 eng(seed);
 	std::uniform_int_distribution<cl_ulong> distr;
 
 	cl_ulong4 r;
@@ -127,23 +142,31 @@ Dispatcher::Device::Device(Dispatcher & parent, cl_context & clContext, cl_progr
 	m_worksizeLocal(worksizeLocal),
 	m_clScoreMax(0),
 	m_clQueue(createQueue(clContext, clDeviceId) ),
-	m_kernelInit( createKernel(clProgram, "profanity_init") ),
-	m_kernelInverse(createKernel(clProgram, "profanity_inverse")),
-	m_kernelIterate(createKernel(clProgram, "profanity_iterate")),
+	m_kernelInit(createKernel(clProgram, mode.name == "reverse" ? "profanity_init_reverse" : "profanity_init")),
+	m_kernelInitHashTable(createKernel(clProgram, "profanity_init_hash_table")),
+	m_kernelInverse(createKernel(clProgram, mode.name == "reverse" ? "profanity_inverse_reverse" : "profanity_inverse")),
+	m_kernelIterate(createKernel(clProgram, mode.name == "reverse" ? "profanity_iterate_reverse" : "profanity_iterate")),
 	m_kernelTransform( mode.transformKernel() == "" ? NULL : createKernel(clProgram, mode.transformKernel())),
+	m_kernelClearResults(createKernel(clProgram, "profanity_clear_results")),
 	m_kernelScore(createKernel(clProgram, mode.kernel)),
 	m_memPrecomp(clContext, m_clQueue, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, sizeof(g_precomp), g_precomp),
 	m_memPointsDeltaX(clContext, m_clQueue, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, size, true),
-	m_memInversedNegativeDoubleGy(clContext, m_clQueue, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, size, true),
+	m_memInversedNegativeDoubleGy(clContext, m_clQueue, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, size),
 	m_memPrevLambda(clContext, m_clQueue, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, size, true),
 	m_memResult(clContext, m_clQueue, CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY, PROFANITY_MAX_SCORE + 1),
 	m_memData1(clContext, m_clQueue, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, 20),
 	m_memData2(clContext, m_clQueue, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, 20),
+	m_memSeed(clContext, m_clQueue, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, HASH_TABLE_JOB_SIZE, !(mode.name == "reverse" || mode.name == "hashTable")),
+	m_memHashTable(clContext,  m_clQueue, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, HASH_TABLE_SIZE * (mode.extented ? 2 : 1), !(mode.name == "reverse" || mode.name == "hashTable")),
+	m_memPublicAddress(clContext, m_clQueue, CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY, 5 * HASH_TABLE_JOB_SIZE, !(mode.name == "reverse" || mode.name == "hashTable")),
 	m_clSeed(createSeed()),
 	m_round(0),
 	m_speed(PROFANITY_SPEEDSAMPLES),
 	m_sizeInitialized(0),
-	m_eventFinished(NULL)
+	m_sizeHashTableInitialized(0),
+	m_eventFinished(NULL),
+	m_mode(mode),
+	m_batchIndex(0)
 {
 
 }
@@ -153,7 +176,7 @@ Dispatcher::Device::~Device() {
 }
 
 Dispatcher::Dispatcher(cl_context & clContext, cl_program & clProgram, const Mode mode, const size_t worksizeMax, const size_t inverseSize, const size_t inverseMultiple, const cl_uchar clScoreQuit)
-	: m_clContext(clContext), m_clProgram(clProgram), m_mode(mode), m_worksizeMax(worksizeMax), m_inverseSize(inverseSize), m_size(inverseSize*inverseMultiple), m_clScoreMax(mode.score), m_clScoreQuit(clScoreQuit), m_eventFinished(NULL), m_countPrint(0) {
+	: m_clContext(clContext), m_clProgram(clProgram), m_mode(mode), m_worksizeMax(worksizeMax), m_inverseSize(inverseSize), m_size(inverseSize*inverseMultiple), m_HashTableSize(HASH_TABLE_SET_SIZE * (mode.extented ? 2 : 1)), m_clScoreMax(mode.score), m_clScoreQuit(clScoreQuit), m_eventFinished(NULL), m_countPrint(0) {
 
 }
 
@@ -166,7 +189,78 @@ void Dispatcher::addDevice(cl_device_id clDeviceId, const size_t worksizeLocal, 
 	m_vDevices.push_back(pDevice);
 }
 
+void printHexNumber(const mp_number & number) {
+	for (size_t i = 0; i < 8; ++i) {
+		std::cout << std::hex << std::setw(2) << std::setfill('0') << "0x" << number.d[i];
+		if (i != 7) {
+			std::cout << ", ";
+		}
+	}
+	std::cout << std::dec;
+}
+
+void printTargetAddress(const point& target) {
+	std::cout << "Target public address:" << std::endl;
+	
+	std::cout << "x = {{";
+	printHexNumber(target.x);
+	std::cout << "}}" << std::endl;
+
+	std::cout << "y = {{";
+	printHexNumber(target.y);
+	std::cout << "}}" << std::endl;
+}
+
+void Dispatcher::runReverse() {
+	const auto isReverse = m_mode.name == "reverse";
+
+	m_quit = false;
+	const int numBatches = m_mode.extented ? 64 : 128;
+	m_epochsTotal = numBatches / m_vDevices.size();
+
+	std::cout << "Memory limit: " << (m_mode.extented ? "16Gb" : "8Gb") << std::endl;
+	std::cout << "Number of batches: " << numBatches << std::endl;
+	std::cout << "Number of epochs: " << m_epochsTotal << std::endl;
+
+	if (isReverse) {
+		std::cout << "Number of steps per batch: " << m_mode.steps << std::endl;
+		printTargetAddress(m_mode.targetAddress);
+	}
+
+	timeStart = std::chrono::steady_clock::now();
+	for (m_epoch = 0; m_epoch < m_epochsTotal && m_clScoreMax != PROFANITY_MAX_SCORE; ++m_epoch) {
+		m_countRunning = m_vDevices.size();
+		for (size_t i = 0; i < m_countRunning; i++) {
+			m_vDevices[i]->m_batchIndex = m_epoch * m_countRunning + i;
+		}
+
+		const auto initStart = std::chrono::steady_clock::now();
+		init();
+		const auto timeInitialization = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - initStart).count();
+		std::cout << "Initialization time: " << timeInitialization << " seconds" << std::endl;
+		
+		if (!isReverse) {
+			continue;
+		}
+
+		m_eventFinished = clCreateUserEvent(m_clContext, NULL);
+
+		for (auto it = m_vDevices.begin(); it != m_vDevices.end(); ++it) {
+			dispatch(*(*it));
+		}
+
+		clWaitForEvents(1, &m_eventFinished);
+		clReleaseEvent(m_eventFinished);
+		m_eventFinished = NULL;
+	}
+}
+
 void Dispatcher::run() {
+	if (m_mode.name == "reverse" || m_mode.name == "hashTable") {
+		runReverse();
+		return;
+	}
+
 	m_eventFinished = clCreateUserEvent(m_clContext, NULL);
 	timeStart = std::chrono::steady_clock::now();
 
@@ -195,17 +289,20 @@ void Dispatcher::run() {
 }
 
 void Dispatcher::init() {
-	std::cout << "Initializing devices..." << std::endl;
-	std::cout << "  This should take less than a minute. The number of objects initialized on each" << std::endl;
-	std::cout << "  device is equal to inverse-size * inverse-multiple. To lower" << std::endl;
-	std::cout << "  initialization time (and memory footprint) I suggest lowering the" << std::endl;
-	std::cout << "  inverse-multiple first. You can do this via the -I switch. Do note that" << std::endl;
-	std::cout << "  this might negatively impact your performance." << std::endl;
-	std::cout << std::endl;
+	// std::cout << "Initializing devices..." << std::endl;
+	// std::cout << "  This should take less than a minute. The number of objects initialized on each" << std::endl;
+	// std::cout << "  device is equal to inverse-size * inverse-multiple. To lower" << std::endl;
+	// std::cout << "  initialization time (and memory footprint) I suggest lowering the" << std::endl;
+	// std::cout << "  inverse-multiple first. You can do this via the -I switch. Do note that" << std::endl;
+	// std::cout << "  this might negatively impact your performance." << std::endl;
+	// std::cout << std::endl;
 
 	const auto deviceCount = m_vDevices.size();
 	m_sizeInitTotal = m_size * deviceCount;
 	m_sizeInitDone = 0;
+
+	m_sizeHashTableInitTotal = m_HashTableSize * deviceCount;
+	m_sizeHashTableInitDone = 0;
 
 	cl_event * const pInitEvents = new cl_event[deviceCount];
 
@@ -227,6 +324,11 @@ void Dispatcher::init() {
 }
 
 void Dispatcher::initBegin(Device & d) {
+	d.m_round = 0;
+	d.m_sizeInitialized = 0;
+	d.m_sizeHashTableInitialized = 0;
+	d.m_addressToIndex.clear();
+
 	// Set mode data
 	for (auto i = 0; i < 20; ++i) {
 		d.m_memData1[i] = m_mode.data1[i];
@@ -243,7 +345,19 @@ void Dispatcher::initBegin(Device & d) {
 	d.m_memPointsDeltaX.setKernelArg(d.m_kernelInit, 1);
 	d.m_memPrevLambda.setKernelArg(d.m_kernelInit, 2);
 	d.m_memResult.setKernelArg(d.m_kernelInit, 3);
-	CLMemory<cl_ulong4>::setKernelArg(d.m_kernelInit, 4, d.m_clSeed);
+
+	if (m_mode.name == "reverse" || m_mode.name == "hashTable") {
+		CLMemory<point>::setKernelArg(d.m_kernelInit, 4, m_mode.targetAddress);
+	} else {
+		CLMemory<cl_ulong4>::setKernelArg(d.m_kernelInit, 4, d.m_clSeed);
+	}
+	
+	// Kernel arguments - profanity_init_hash_table
+	d.m_memPrecomp.setKernelArg(d.m_kernelInitHashTable, 0);
+	d.m_memSeed.setKernelArg(d.m_kernelInitHashTable, 1);
+	d.m_memHashTable.setKernelArg(d.m_kernelInitHashTable, 2);
+	d.m_memPublicAddress.setKernelArg(d.m_kernelInitHashTable, 3);
+	CLMemory<cl_uchar>::setKernelArg(d.m_kernelInitHashTable, 4, m_mode.extented);
 
 	// Kernel arguments - profanity_inverse
 	d.m_memPointsDeltaX.setKernelArg(d.m_kernelInverse, 0);
@@ -259,16 +373,114 @@ void Dispatcher::initBegin(Device & d) {
 		d.m_memInversedNegativeDoubleGy.setKernelArg(d.m_kernelTransform, 0);
 	}
 
+	// Kernel arguments - profanity_clear_results
+	d.m_memResult.setKernelArg(d.m_kernelClearResults, 0);
+
 	// Kernel arguments - profanity_score_*
 	d.m_memInversedNegativeDoubleGy.setKernelArg(d.m_kernelScore, 0);
 	d.m_memResult.setKernelArg(d.m_kernelScore, 1);
 	d.m_memData1.setKernelArg(d.m_kernelScore, 2);
 	d.m_memData2.setKernelArg(d.m_kernelScore, 3);
-
 	CLMemory<cl_uchar>::setKernelArg(d.m_kernelScore, 4, d.m_clScoreMax); // Updated in handleResult()
 
+	if (d.m_mode.name == "reverse") {
+		d.m_memHashTable.setKernelArg(d.m_kernelScore, 5);
+		CLMemory<cl_uchar>::setKernelArg(d.m_kernelScore, 6, m_mode.extented);
+	}
+
 	// Seed device
-	initContinue(d);
+	if (d.m_mode.name == "reverse" || d.m_mode.name == "hashTable") {
+		initHashTableContinue(d);
+	} else {
+		initContinue(d);
+	}
+}
+
+cl_ulong4 getPrivateKey(size_t seed) {
+	std::mt19937_64 eng(seed);
+	std::uniform_int_distribution<cl_ulong> distr;
+
+	cl_ulong4 r;
+	r.s[0] = distr(eng);
+	r.s[1] = distr(eng);
+	r.s[2] = distr(eng);
+	r.s[3] = distr(eng);
+	return r;
+}
+
+Dispatcher::Device::Address::Address(): a(0), b(0), c(0), d(0), e(0) {}
+
+Dispatcher::Device::Address::Address(uint a, uint b, uint c, uint d, uint e): a(a), b(b), c(c), d(d), e(e) {}
+
+bool Dispatcher::Device::Address::operator <(const Address& x) const {
+	return (a < x.a) || (a == x.a && b < x.b) || (a == x.a && b == x.b && c < x.c) || (a == x.a && b == x.b && c == x.c && d < x.d) || (a == x.a && b == x.b && c == x.c && d == x.d && e < x.e);
+}
+
+void Dispatcher::initHashTableContinue(Device & d) {
+	size_t sizeLeft = m_HashTableSize - d.m_sizeHashTableInitialized;
+	
+	if (sizeLeft == 0 && d.m_sizeInitialized > 0) {
+		initContinue(d);
+		return;
+	}
+
+	const size_t iterDone = d.m_sizeHashTableInitialized / HASH_TABLE_JOB_SIZE;
+	const size_t iterTotal = m_HashTableSize / HASH_TABLE_JOB_SIZE;
+	
+	// const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - timeStart).count();
+	// const size_t remaining = (iterTotal - iterDone) * milliseconds / iterDone / 1000;
+	// const size_t percentDone = m_sizeHashTableInitDone * 100 / m_sizeHashTableInitTotal;
+	// std::cout << "  " << percentDone << "% (remaining " << remaining << "s)" << "\r" << std::flush;
+
+	if (iterDone > 0) {
+		d.m_memPublicAddress.read(true);
+		
+		const size_t offset = d.m_batchIndex * m_HashTableSize + (iterDone - 1) * HASH_TABLE_JOB_SIZE;
+		for (size_t i = 0; i < HASH_TABLE_JOB_SIZE; ++i) {
+			Device::Address key(
+				d.m_memPublicAddress[i * 5 + 0],
+				d.m_memPublicAddress[i * 5 + 1],
+				d.m_memPublicAddress[i * 5 + 2],
+				d.m_memPublicAddress[i * 5 + 3],
+				d.m_memPublicAddress[i * 5 + 4]
+			);
+			d.m_addressToIndex[key] = offset + i;
+		}
+	}
+
+	if (sizeLeft) {
+		cl_event event;
+		const size_t sizeRun = std::min(HASH_TABLE_JOB_SIZE, std::min(sizeLeft, m_worksizeMax));
+
+		// TODO: load data if cache is enabled
+		const size_t offset = d.m_batchIndex * m_HashTableSize + HASH_TABLE_JOB_SIZE * iterDone;
+		for (size_t i = 0; i < HASH_TABLE_JOB_SIZE; ++i) {
+			d.m_memSeed[i] = getPrivateKey(offset + i);
+		}
+		d.m_memSeed.write(true);
+	
+		const auto resEnqueue = clEnqueueNDRangeKernel(d.m_clQueue, d.m_kernelInitHashTable, 1, &d.m_sizeHashTableInitialized, &sizeRun, NULL, 0, NULL, &event);
+		OpenCLException::throwIfError("kernel queueing failed during initilization", resEnqueue);
+
+		clFlush(d.m_clQueue); 
+
+		std::lock_guard<std::mutex> lock(m_mutex);
+		d.m_sizeHashTableInitialized += sizeRun;
+		m_sizeHashTableInitDone += sizeRun;
+
+		const auto resCallback = clSetEventCallback(event, CL_COMPLETE, staticCallback, &d);
+		OpenCLException::throwIfError("failed to set custom callback during hash table initialization", resCallback);
+	} else {
+		// const std::string strOutput = "  GPU" + toString(d.m_index) + " hash table initialized";
+		// std::cout << strOutput << std::endl;
+		
+		if (m_mode.name == "hashTable") {
+			// TODO: save data
+			clSetUserEventStatus(d.m_eventFinished, CL_COMPLETE);
+		} else if (m_mode.name == "reverse") {
+			initContinue(d);
+		}
+	}
 }
 
 void Dispatcher::initContinue(Device & d) {
@@ -276,8 +488,8 @@ void Dispatcher::initContinue(Device & d) {
 	const size_t sizeInitLimit = m_size / 20;
 
 	// Print progress
-	const size_t percentDone = m_sizeInitDone * 100 / m_sizeInitTotal;
-	std::cout << "  " << percentDone << "%\r" << std::flush;
+	// const size_t percentDone = m_sizeInitDone * 100 / m_sizeInitTotal;
+	// std::cout << "  " << percentDone << "%\r" << std::flush;
 
 	if (sizeLeft) {
 		cl_event event;
@@ -301,8 +513,8 @@ void Dispatcher::initContinue(Device & d) {
 		OpenCLException::throwIfError("failed to set custom callback during initialization", resCallback);
 	} else {
 		// Printing one whole string at once helps in avoiding garbled output when executed in parallell
-		const std::string strOutput = "  GPU" + toString(d.m_index) + " initialized";
-		std::cout << strOutput << std::endl;
+		// const std::string strOutput = "  GPU" + toString(d.m_index) + " initialized";
+		// std::cout << strOutput << std::endl;
 		clSetUserEventStatus(d.m_eventFinished, CL_COMPLETE);
 	}
 }
@@ -341,34 +553,72 @@ void Dispatcher::dispatch(Device & d) {
 	cl_event event;
 	d.m_memResult.read(false, &event);
 
-#ifdef PROFANITY_DEBUG
-	cl_event eventInverse;
-	cl_event eventIterate;
-
-	enqueueKernelDevice(d, d.m_kernelInverse, m_size / m_inverseSize, &eventInverse);
-	enqueueKernelDevice(d, d.m_kernelIterate, m_size, &eventIterate);
-#else
 	enqueueKernelDevice(d, d.m_kernelInverse, m_size / m_inverseSize);
 	enqueueKernelDevice(d, d.m_kernelIterate, m_size);
-#endif
 
 	if (d.m_kernelTransform) {
 		enqueueKernelDevice(d, d.m_kernelTransform, m_size);
 	}
 
+	if (d.m_mode.name == "reverse") {
+		enqueueKernelDevice(d, d.m_kernelClearResults, d.m_worksizeLocal);
+	}
+
 	enqueueKernelDevice(d, d.m_kernelScore, m_size);
 	clFlush(d.m_clQueue);
 
-#ifdef PROFANITY_DEBUG
-	// We're actually not allowed to call clFinish here because this function is ultimately asynchronously called by OpenCL.
-	// However, this happens to work on my computer and it's not really intended for release, just something to aid me in
-	// optimizations.
-	clFinish(d.m_clQueue); 
-	std::cout << "Timing: profanity_inverse = " << getKernelExecutionTimeMicros(eventInverse) << "us, profanity_iterate = " << getKernelExecutionTimeMicros(eventIterate) << "us" << std::endl;
-#endif
-
 	const auto res = clSetEventCallback(event, CL_COMPLETE, staticCallback, &d);
 	OpenCLException::throwIfError("failed to set custom callback", res);
+}
+
+void Dispatcher::handleReverse(Device & d) {
+	for (auto i = PROFANITY_MAX_SCORE; i > 0; --i) {
+		result & r = d.m_memResult[i];
+	
+		if (r.found > 0) {
+			uint a[5];
+			const cl_uchar* h = r.foundHash;
+			for (size_t i = 0; i < 5; ++i) {
+				a[i] = 0;
+				a[i] |= ((1U * h[4 * i + 3]) << 24);
+				a[i] |= ((1U * h[4 * i + 2]) << 16);
+				a[i] |= ((1U * h[4 * i + 1]) << 8);
+				a[i] |= ((1U * h[4 * i + 0]) << 0);
+			}
+
+			Device::Address key(a[0], a[1], a[2], a[3], a[4]);
+			std::map<Device::Address, int>::iterator it = d.m_addressToIndex.find(key);
+
+			if (it != d.m_addressToIndex.end()) {
+				std::lock_guard<std::mutex> lock(m_mutex);
+				if (m_clScoreMax != PROFANITY_MAX_SCORE) {
+					m_clScoreMax = PROFANITY_MAX_SCORE;
+					m_quit = true;
+
+					size_t seed = d.m_batchIndex * m_HashTableSize + it->second;
+					cl_ulong4 rootKey = getPrivateKey(seed);
+
+					// Time delta
+					const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeStart).count();
+					// Format private key
+					cl_ulong4 privateKey = restorePrivateKey(rootKey, r.foundId, d.m_round - 2);
+					const std::string strPrivate = privateKeyToStr(privateKey);
+					// Print
+					const std::string strVT100ClearLine = "\33[2K\r";
+					std::cout << "Id: " << r.foundId << " Round:" << d.m_round - 2 << std::endl;
+					std::cout << strVT100ClearLine << "  Time: " << std::setw(5) << seconds << " Private: 0x" << strPrivate << std::endl;
+				}
+			} else {
+				std::cout << "Found the wrong candidate" << std::endl;
+			}
+		}
+	}
+
+	std::lock_guard<std::mutex> lock(m_mutex);
+	if (m_quit == false && d.m_round == m_mode.steps + STEPS_OFFSET) {
+		std::cout << "Step limit reached, no canidates found" << std::endl;
+		m_quit = true;
+	}
 }
 
 void Dispatcher::handleResult(Device & d) {
@@ -400,10 +650,20 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 		std::cout << "Dispatcher::onEvent - Got bad status: " << status << std::endl;
 	}
 	else if (d.m_eventFinished != NULL) {
-		initContinue(d);
+		if (d.m_mode.name == "reverse" || d.m_mode.name == "hashTable") {
+			initHashTableContinue(d);
+		} else {
+			initContinue(d);
+		}
 	} else {
 		++d.m_round;
-		handleResult(d);
+		m_step = d.m_round;
+
+		if (m_mode.name == "reverse") {
+			handleReverse(d);
+		} else {
+			handleResult(d);
+		}
 
 		bool bDispatch = true;
 		{
@@ -438,9 +698,28 @@ void Dispatcher::printSpeed() {
 			strGPUs += " GPU" + toString(e->m_index) + ": " + formatSpeed(curSpeed);
 			++i;
 		}
+	
+		std::string strProgress;
+		std::string strTime;
+		if (m_mode.name == "reverse") {
+			const size_t a = m_mode.steps * m_epoch + m_step;
+			const size_t b = m_mode.steps * m_epochsTotal;
+			const float progress = 100.0 * a / b;
+			
+			const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeStart).count();
+			const size_t remaining = (100.0 - progress) * (seconds / progress);
+			
+			std::ostringstream strProgressBuilder;
+			strProgressBuilder << std::setfill(' ') << std::setw(3) << size_t(progress) << "%:";
+			strProgress = strProgressBuilder.str();
+
+			std::ostringstream strTimeBuilder;
+			strTimeBuilder << " (remaining " << int(remaining / 60) << "m)";
+			strTime = strTimeBuilder.str();
+		}
 
 		const std::string strVT100ClearLine = "\33[2K\r";
-		std::cerr << strVT100ClearLine << "Total: " << formatSpeed(speedTotal) << " -" << strGPUs << '\r' << std::flush;
+		std::cerr << strVT100ClearLine << strProgress << " total: " << formatSpeed(speedTotal) << " -" << strGPUs << strTime << '\r' << std::flush;
 		m_countPrint = 0;
 	}
 }

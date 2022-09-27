@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <mutex>
+#include <map>
 
 #if defined(__APPLE__) || defined(__MACOSX)
 #include <OpenCL/cl.h>
@@ -50,9 +51,11 @@ class Dispatcher {
 			cl_command_queue m_clQueue;
 
 			cl_kernel m_kernelInit;
+			cl_kernel m_kernelInitHashTable;
 			cl_kernel m_kernelInverse;
 			cl_kernel m_kernelIterate;
 			cl_kernel m_kernelTransform;
+			cl_kernel m_kernelClearResults;
 			cl_kernel m_kernelScore;
 
 			CLMemory<point> m_memPrecomp;
@@ -60,14 +63,20 @@ class Dispatcher {
 			CLMemory<mp_number> m_memInversedNegativeDoubleGy;
 			CLMemory<mp_number> m_memPrevLambda;
 			CLMemory<result> m_memResult;
+			CLMemory<cl_ulong4> m_memSeed;
+			CLMemory<cl_uint> m_memHashTable;
+			CLMemory<cl_uint> m_memPublicAddress;
 
 			// Data parameters used in some modes
+			const Mode& m_mode;
 			CLMemory<cl_uchar> m_memData1;
 			CLMemory<cl_uchar> m_memData2;
 
 			// Seed and round information
 			cl_ulong4 m_clSeed;
 			cl_ulong m_round;
+			point m_Target;
+			size_t m_batchIndex;
 
 			// Speed sampling
 			SpeedSample m_speed;
@@ -75,6 +84,18 @@ class Dispatcher {
 			// Initialization
 			size_t m_sizeInitialized;
 			cl_event m_eventFinished;
+			
+			struct Address {
+				uint a, b, c, d, e;
+				
+				Address();
+				Address(uint a, uint b, uint c, uint d, uint e);
+				bool operator <(const Address& x) const;
+			};
+
+			// HashTable Initialization
+			size_t m_sizeHashTableInitialized;
+			std::map<Address, int> m_addressToIndex;
 		};
 
 	public:
@@ -83,17 +104,20 @@ class Dispatcher {
 
 		void addDevice(cl_device_id clDeviceId, const size_t worksizeLocal, const size_t index);
 		void run();
+		void runReverse();
 
 	private:
 		void init();
 		void initBegin(Device & d);
 		void initContinue(Device & d);
+		void initHashTableContinue(Device & d);
 
 		void dispatch(Device & d);
 		void enqueueKernel(cl_command_queue & clQueue, cl_kernel & clKernel, size_t worksizeGlobal, const size_t worksizeLocal, cl_event * pEvent);
 		void enqueueKernelDevice(Device & d, cl_kernel & clKernel, size_t worksizeGlobal, cl_event * pEvent);
 
 		void handleResult(Device & d);
+		void handleReverse(Device & d);
 		void randomizeSeed(Device & d);
 
 		void onEvent(cl_event event, cl_int status, Device & d);
@@ -112,6 +136,7 @@ class Dispatcher {
 		const size_t m_worksizeMax;
 		const size_t m_inverseSize;
 		const size_t m_size;
+		const size_t m_HashTableSize;
 		cl_uchar m_clScoreMax;
 		cl_uchar m_clScoreQuit;
 
@@ -126,7 +151,12 @@ class Dispatcher {
 		unsigned int m_countRunning;
 		size_t m_sizeInitTotal;
 		size_t m_sizeInitDone;
+		size_t m_sizeHashTableInitTotal;
+		size_t m_sizeHashTableInitDone;
 		bool m_quit;
+		size_t m_epoch;
+		size_t m_epochsTotal;
+		size_t m_step;
 };
 
 #endif /* HPP_DISPATCHER */

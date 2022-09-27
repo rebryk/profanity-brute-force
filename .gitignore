@@ -6,4 +6,5 @@ bin
 seeds/
 .vscode/
 cache/
-.DS_Store/
+.DS_Store
+*.x64
