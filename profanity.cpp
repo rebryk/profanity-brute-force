@@ -148,6 +148,12 @@ int main(int argc, char * * argv) {
 		bool bModeZeros = false;
 		bool bModeLetters = false;
 		bool bModeNumbers = false;
+		bool bModeReverse = false;
+		bool bMode16Gb = false;
+		bool bModeCache = false;
+		bool bModeHashTable = false;
+		int iModeSteps = 0;
+		std::string strModeTarget;
 		std::string strModeLeading;
 		std::string strModeMatching;
 		bool bModeLeadingRange = false;
@@ -184,6 +190,12 @@ int main(int argc, char * * argv) {
 		argp.addSwitch('i', "inverse-size", inverseSize);
 		argp.addSwitch('I', "inverse-multiple", inverseMultiple);
 		argp.addSwitch('c', "contract", bMineContract);
+		argp.addSwitch('r', "reverse", bModeReverse);
+		argp.addSwitch('t', "target", strModeTarget);
+		argp.addSwitch('e', "extended", bMode16Gb);
+		argp.addSwitch('C', "cache", bModeCache);
+		argp.addSwitch('s', "steps", iModeSteps);
+		argp.addSwitch('h', "hash-table", bModeHashTable);
 
 		if (!argp.parse()) {
 			std::cout << "error: bad arguments, try again :<" << std::endl;
@@ -216,7 +228,27 @@ int main(int argc, char * * argv) {
 			mode = Mode::mirror();
 		} else if (bModeDoubles) {
 			mode = Mode::doubles();
-		} else {
+		} else if (bModeHashTable) {
+			mode = Mode::hashTable(bMode16Gb);
+		} else if (bModeReverse != -1) {
+			if (strModeTarget.empty()) {
+				std::cout << "Specify a target public address with -t" << std::endl;
+				return 1;
+			}
+
+			if (strModeTarget.size() != 130) {
+				std::cout << "Target public address must be 130 characters long and start with 0x" << std::endl;
+				return 1;
+			}
+
+			if (iModeSteps == 0) {
+				std::cout << "Specify the number of steps with -s" << std::endl;
+				return 1;
+			}
+
+			mode = Mode::reverse(strModeTarget, iModeSteps, bMode16Gb, bModeCache);
+		}
+		else {
 			std::cout << g_strHelp << std::endl;
 			return 0;
 		}

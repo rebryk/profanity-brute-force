@@ -9,6 +9,8 @@
 #include <CL/cl.h>
 #endif
 
+#include "types.hpp"
+
 enum HashTarget {
 	ADDRESS,
 	CONTRACT,
@@ -21,6 +23,9 @@ class Mode {
 
 	public:
 		static Mode matching(const std::string strHex);
+		static Mode hashTable(const bool extended);
+		static Mode reverse(const std::string strPublicAddress, const int steps, const bool extended, const bool cache);
+		
 		static Mode range(const cl_uchar min, const cl_uchar max);
 		static Mode leading(const char charLeading);
 		static Mode leadingRange(const cl_uchar min, const cl_uchar max);
@@ -45,6 +50,12 @@ class Mode {
 		cl_uchar data1[20];
 		cl_uchar data2[20];
 		cl_uchar score;
+
+		// Reverse mode
+		point targetAddress;
+		int steps;
+		bool extented;
+		bool cache;
 };
 
 #endif /* HPP_MODE */

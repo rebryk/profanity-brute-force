@@ -1,5 +1,9 @@
 #include "Mode.hpp"
 #include <stdexcept>
+#include <iostream>
+#include <cassert>
+
+using namespace std;
 
 Mode::Mode() : score(0) {
 
@@ -35,6 +39,52 @@ static std::string::size_type hexValue(char c) {
 	}
 
 	return ret;
+}
+
+static unsigned int parseHex(const std::string& strHex) {
+	assert(strHex.size() == 8);
+	unsigned int ret = 0;
+	for (std::string::size_type i = 0; i < strHex.size(); ++i) {
+		ret <<= 4;
+		ret |= hexValue(strHex[i]);
+	}
+	return ret;
+}
+
+static mp_number parseCoordinate(const std::string& strHex) {
+	assert (strHex.size() == 64);
+
+	mp_number c;
+	for (size_t w = 0; w < 8; ++w) {
+		const std::string word = strHex.substr(w * 8, 8);
+		c.d[MP_NWORDS - 1 - w] = parseHex(word);
+	}
+
+	return c;
+}
+
+Mode Mode::reverse(const std::string strPublicAddress, const int steps, const bool extented, const bool cache) {
+	Mode r;
+	r.name = "reverse";
+	r.kernel = "profanity_score_reverse";
+
+	assert(strPublicAddress.size() == 130);
+	r.targetAddress.x = parseCoordinate(strPublicAddress.substr(2, 64));
+	r.targetAddress.y = parseCoordinate(strPublicAddress.substr(66, 64));
+	r.steps = steps;
+	r.extented = extented;
+	r.cache = cache;
+
+	return r;
+}
+
+Mode Mode::hashTable(const bool extented) {
+	Mode r;
+	r.name = "hashTable";
+	r.kernel = "profanity_score_reverse";
+	r.extented = extented;
+	
+	return r;
 }
 
 Mode Mode::matching(const std::string strHex) {
