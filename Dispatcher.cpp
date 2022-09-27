@@ -653,6 +653,12 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 				++d.m_iterHashTableInitialized;
 				initHashTableContinue(d);
 			} else if (m_mode.name == "hashTable") {
+				std::string mapFilename = "cache/map/" + toString(d.m_batchIndex) + ".bin";
+				writeMap(mapFilename, d.m_addressToIndex);
+
+				std::string bitsetFilename = "cache/bitset/" + toString(d.m_batchIndex) + ".bin";
+				writeBitset(bitsetFilename, d.m_memHashTable.data(), HASH_TABLE_SIZE * (m_mode.extented ? 2 : 1));
+
 				clSetUserEventStatus(d.m_eventFinished, CL_COMPLETE);
 			} else {
 				initContinue(d);
@@ -747,4 +753,65 @@ std::string Dispatcher::formatSpeed(double f) {
 	std::ostringstream ss;
 	ss << std::fixed << std::setprecision(3) << (double)f << " " << S[index] << "H/s";
 	return ss.str();
+}
+
+
+void Dispatcher::writeMap(std::string& filename, std::map<Device::Address, int>& map) {
+	std::ofstream file;
+    file.open(filename, std::ios::binary | std::ios::out);
+
+	assert(map.size() == m_HashTableSize);
+	for (auto const& it : map) {
+		file.write((char*)(&it.first.a), sizeof(it.first.a));
+		file.write((char*)(&it.first.b), sizeof(it.first.b));
+		file.write((char*)(&it.first.c), sizeof(it.first.c));
+		file.write((char*)(&it.first.d), sizeof(it.first.d));
+		file.write((char*)(&it.first.e), sizeof(it.first.e));
+		file.write((char*)(&it.second), sizeof(it.second));
+	}	
+
+	file.close();
+}
+
+void Dispatcher::readMap(std::string& filename, std::map<Device::Address, int>& map) {
+	std::ifstream file;
+    file.open(filename, std::ios::binary | std::ios::in);
+	
+	for (size_t i = 0; i < m_HashTableSize; ++i) {
+		Device::Address key;
+		int value;
+
+		file.read((char*)(&key.a), sizeof(key.a));
+		file.read((char*)(&key.b), sizeof(key.b));
+		file.read((char*)(&key.c), sizeof(key.c));
+		file.read((char*)(&key.d), sizeof(key.d));
+		file.read((char*)(&key.e), sizeof(key.e));
+		file.read((char*)(&value), sizeof(value));
+
+		map[key] = value;
+	}
+
+	file.close();
+}
+
+void Dispatcher::writeBitset(std::string& filename, cl_ulong data[], size_t size) {
+    std::ofstream file;
+    file.open(filename, std::ios::binary | std::ios::out);
+	
+	for (size_t i = 0; i < size; ++i) {
+        file.write((char*)(&data[i]), sizeof(data[i]));
+    }
+
+    file.close();
+}
+
+void Dispatcher::readBitset(std::string& filename, cl_ulong data[], size_t size) {
+	std::ifstream file;
+    file.open(filename, std::ios::binary | std::ios::in);
+
+    for (size_t i = 0; i < size; ++i) {
+        file.read((char*)(&data[i]), sizeof(data[i]));
+    }
+    
+    file.close();
 }

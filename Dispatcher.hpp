@@ -64,7 +64,7 @@ class Dispatcher {
 			CLMemory<mp_number> m_memPrevLambda;
 			CLMemory<result> m_memResult;
 			CLMemory<cl_ulong4> m_memSeed;
-			CLMemory<cl_uint> m_memHashTable;
+			CLMemory<cl_ulong> m_memHashTable;
 			CLMemory<cl_uint> m_memPublicAddress;
 
 			// Data parameters used in some modes
@@ -107,6 +107,12 @@ class Dispatcher {
 		void addDevice(cl_device_id clDeviceId, const size_t worksizeLocal, const size_t index);
 		void run();
 		void runReverse();
+
+		void writeMap(std::string& filename, std::map<Device::Address, int>& map);
+		void readMap(std::string& filename, std::map<Device::Address, int>& map);
+
+		void writeBitset(std::string& filename, cl_ulong data[], size_t size);
+		void readBitset(std::string& filename, cl_ulong data[], size_t size);
 
 	private:
 		void init();
