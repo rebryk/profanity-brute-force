@@ -10,12 +10,13 @@
 #include <thread>
 #include <algorithm>
 #include <climits>
+#include <cassert>
 
 #include "precomp.hpp"
 
 static const size_t STEPS_OFFSET = 3;
 static const size_t HASH_TABLE_SIZE = 1U << 30; // 1U << 30;
-static const size_t HASH_TABLE_SET_SIZE = 1 << 26; // 1 << 25;
+static const size_t HASH_TABLE_SET_SIZE = 1 << 25; // 1 << 25;
 static const size_t HASH_TABLE_JOB_SIZE = 1 << 18; // 1 << 18;
 
 static std::string toHex(const uint8_t * const s, const size_t len) {
@@ -351,7 +352,7 @@ void Dispatcher::initBegin(Device & d) {
 	d.m_memPrevLambda.setKernelArg(d.m_kernelInit, 2);
 	d.m_memResult.setKernelArg(d.m_kernelInit, 3);
 
-	if (m_mode.name == "reverse" || m_mode.name == "hashTable") {
+	if (m_mode.name == "reverse") {
 		CLMemory<point>::setKernelArg(d.m_kernelInit, 4, m_mode.targetAddress);
 	} else {
 		CLMemory<cl_ulong4>::setKernelArg(d.m_kernelInit, 4, d.m_clSeed);
