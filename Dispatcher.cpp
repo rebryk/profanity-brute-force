@@ -15,7 +15,7 @@
 
 static const size_t STEPS_OFFSET = 3;
 static const size_t HASH_TABLE_SIZE = 1U << 30; // 1U << 30;
-static const size_t HASH_TABLE_SET_SIZE = 1 << 25; // 1 << 25;
+static const size_t HASH_TABLE_SET_SIZE = 1 << 26; // 1 << 25;
 static const size_t HASH_TABLE_JOB_SIZE = 1 << 18; // 1 << 18;
 
 static std::string toHex(const uint8_t * const s, const size_t len) {
@@ -637,7 +637,7 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 
 			if (d.m_mode.cache) {
 				if (d.m_iterHashTableInitialized == 0) {
-					std::string mapFilename = "cache/map/" + toString(d.m_batchIndex) + ".bin";
+					std::string mapFilename = "cache/" + toString(d.m_batchIndex) + ".bin";
 					readMap(mapFilename, d.m_addressToIndex);
 					std::cout << d.m_addressToIndex.size() << std::endl;
 
@@ -676,7 +676,7 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 				++d.m_iterHashTableInitialized;
 				initHashTableContinue(d);
 			} else if (m_mode.name == "hashTable") {
-				std::string mapFilename = "cache/map/" + toString(d.m_batchIndex) + ".bin";
+				std::string mapFilename = "cache/" + toString(d.m_batchIndex) + ".bin";
 				writeMap(mapFilename, d.m_addressToIndex);
 
 				clSetUserEventStatus(d.m_eventFinished, CL_COMPLETE);
