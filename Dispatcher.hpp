@@ -66,6 +66,7 @@ class Dispatcher {
 			CLMemory<cl_ulong4> m_memSeed;
 			CLMemory<cl_ulong> m_memHashTable;
 			CLMemory<cl_uint> m_memPublicAddress;
+			CLMemory<cl_uint> m_memPublicBytes;
 
 			// Data parameters used in some modes
 			const Mode& m_mode;
@@ -98,6 +99,7 @@ class Dispatcher {
 			size_t m_iterHashTableInitialized;
 			size_t m_sizeHashTableInitialized;
 			std::map<Address, int> m_addressToIndex;
+			std::vector<Address> m_addresses;
 		};
 
 	public:

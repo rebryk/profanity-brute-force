@@ -539,6 +539,15 @@ __kernel void profanity_init(__global const point * const precomp, __global mp_n
 	}
 }
 
+void set_bit(const uint a, const uint b, const uint c, __global ulong * bitset, const uchar ext) {
+	// k has 30 bits (or 31 in extended mode)
+	const uint k = c >> (ext > 0 ? 1 : 2);
+	// m has 64 bits
+	const ulong m = ((1UL * a) << 32) | b;
+	// TODO: use atomic
+	bitset[k] = m;
+}
+
 __kernel void profanity_init_hash_table(__global const point * const precomp, __global ulong4 * const seed, __global ulong * bitset, __global uint * publicAddress, const uchar ext) {
 	const size_t id = get_global_id(0);
 	const size_t offset = get_global_offset(0);
@@ -575,14 +584,6 @@ __kernel void profanity_init_hash_table(__global const point * const precomp, __
 	h.d[16] ^= 0x01; // length 64
 
 	sha3_keccakf(&h);
-
-	// k has 30 bits (or 31 in extended mode)
-	const uint k = h.d[7] >> (ext > 0 ? 1 : 2);
-	// m has 64 bits
-	const ulong m = ((1UL * h.d[5]) << 32) | h.d[6];
-	
-	// atomic_cmpxchg(&bitset[k], 0, m);
-	bitset[k] = m;
 	
 	// Save public address hash in pInverse, only used as interim storage until next cycle
 	const uint j = 5 * index;
@@ -591,7 +592,23 @@ __kernel void profanity_init_hash_table(__global const point * const precomp, __
 	publicAddress[j + 2] = h.d[5];
 	publicAddress[j + 3] = h.d[6];
 	publicAddress[j + 4] = h.d[7];
+
+	set_bit(h.d[5], h.d[6], h.d[7], bitset, ext);	
 }
+
+__kernel void profanity_init_hash_table_from_bytes(__global uint * bytes, __global ulong * bitset, const uchar ext) {
+	const size_t id = get_global_id(0);
+	const uint index = 3 * id;
+	set_bit(bytes[index + 0], bytes[index + 1], bytes[index + 2], bitset, ext);
+}
+
+// __kernel void profanity_copy_hash_table(__global ulong * chunk, __global ulong * bitset) {
+// 	const size_t id = get_global_id(0);
+// 	const size_t offset = get_global_offset(0);
+	
+// 	const size_t index = id - offset;
+// 	bitset[id] = chunk[index];
+// }
 
 __kernel void profanity_inverse_reverse(__global const mp_number * const pDeltaX, __global mp_number * const pInverse) {
 	const size_t id = get_global_id(0) * PROFANITY_INVERSE_SIZE;

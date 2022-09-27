@@ -54,7 +54,7 @@ class Mode {
 		// Reverse mode
 		point targetAddress;
 		int steps;
-		bool extented;
+		bool extended;
 		bool cache;
 };
 

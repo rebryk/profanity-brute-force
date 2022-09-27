@@ -143,7 +143,7 @@ Dispatcher::Device::Device(Dispatcher & parent, cl_context & clContext, cl_progr
 	m_clScoreMax(0),
 	m_clQueue(createQueue(clContext, clDeviceId) ),
 	m_kernelInit(createKernel(clProgram, mode.name == "reverse" ? "profanity_init_reverse" : "profanity_init")),
-	m_kernelInitHashTable(createKernel(clProgram, "profanity_init_hash_table")),
+	m_kernelInitHashTable(createKernel(clProgram, mode.cache ? "profanity_init_hash_table_from_bytes" : "profanity_init_hash_table")),
 	m_kernelInverse(createKernel(clProgram, mode.name == "reverse" ? "profanity_inverse_reverse" : "profanity_inverse")),
 	m_kernelIterate(createKernel(clProgram, mode.name == "reverse" ? "profanity_iterate_reverse" : "profanity_iterate")),
 	m_kernelTransform( mode.transformKernel() == "" ? NULL : createKernel(clProgram, mode.transformKernel())),
@@ -156,9 +156,10 @@ Dispatcher::Device::Device(Dispatcher & parent, cl_context & clContext, cl_progr
 	m_memResult(clContext, m_clQueue, CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY, PROFANITY_MAX_SCORE + 1),
 	m_memData1(clContext, m_clQueue, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, 20),
 	m_memData2(clContext, m_clQueue, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, 20),
-	m_memSeed(clContext, m_clQueue, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, HASH_TABLE_JOB_SIZE, !(mode.name == "reverse" || mode.name == "hashTable")),
-	m_memHashTable(clContext,  m_clQueue, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, HASH_TABLE_SIZE * (mode.extented ? 2 : 1), !(mode.name == "reverse" || mode.name == "hashTable")),
+	m_memHashTable(clContext,  m_clQueue, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, HASH_TABLE_SIZE * (mode.extended ? 2 : 1), !(mode.name == "reverse" || mode.name == "hashTable")),
+	m_memSeed(clContext, m_clQueue, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, HASH_TABLE_JOB_SIZE, !((mode.name == "reverse" && !mode.cache) || mode.name == "hashTable")),
 	m_memPublicAddress(clContext, m_clQueue, CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY, 5 * HASH_TABLE_JOB_SIZE, !(mode.name == "reverse" || mode.name == "hashTable")),
+	m_memPublicBytes(clContext, m_clQueue, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, 3 * HASH_TABLE_JOB_SIZE, !(mode.name == "reverse" && mode.cache)),
 	m_clSeed(createSeed()),
 	m_round(0),
 	m_speed(PROFANITY_SPEEDSAMPLES),
@@ -176,7 +177,7 @@ Dispatcher::Device::~Device() {
 }
 
 Dispatcher::Dispatcher(cl_context & clContext, cl_program & clProgram, const Mode mode, const size_t worksizeMax, const size_t inverseSize, const size_t inverseMultiple, const cl_uchar clScoreQuit)
-	: m_clContext(clContext), m_clProgram(clProgram), m_mode(mode), m_worksizeMax(worksizeMax), m_inverseSize(inverseSize), m_size(inverseSize*inverseMultiple), m_HashTableSize(HASH_TABLE_SET_SIZE * (mode.extented ? 2 : 1)), m_clScoreMax(mode.score), m_clScoreQuit(clScoreQuit), m_eventFinished(NULL), m_countPrint(0) {
+	: m_clContext(clContext), m_clProgram(clProgram), m_mode(mode), m_worksizeMax(worksizeMax), m_inverseSize(inverseSize), m_size(inverseSize*inverseMultiple), m_HashTableSize(HASH_TABLE_SET_SIZE * (mode.extended ? 2 : 1)), m_clScoreMax(mode.score), m_clScoreQuit(clScoreQuit), m_eventFinished(NULL), m_countPrint(0) {
 
 }
 
@@ -215,10 +216,10 @@ void Dispatcher::runReverse() {
 	const auto isReverse = m_mode.name == "reverse";
 
 	m_quit = false;
-	const int numBatches = m_mode.extented ? 64 : 128;
+	const int numBatches = m_mode.extended ? 64 : 128;
 	m_epochsTotal = numBatches / m_vDevices.size();
 
-	std::cout << "Memory limit: " << (m_mode.extented ? "16Gb" : "8Gb") << std::endl;
+	std::cout << "Memory limit: " << (m_mode.extended ? "16Gb" : "8Gb") << std::endl;
 	std::cout << "Number of batches: " << numBatches << std::endl;
 	std::cout << "Number of epochs: " << m_epochsTotal << std::endl;
 
@@ -331,6 +332,7 @@ void Dispatcher::initBegin(Device & d) {
 	d.m_sizeHashTableInitialized = 0;
 	d.m_iterHashTableInitialized = 0;
 	d.m_addressToIndex.clear();
+	d.m_addresses.clear();
 
 	// Set mode data
 	for (auto i = 0; i < 20; ++i) {
@@ -356,11 +358,17 @@ void Dispatcher::initBegin(Device & d) {
 	}
 	
 	// Kernel arguments - profanity_init_hash_table
-	d.m_memPrecomp.setKernelArg(d.m_kernelInitHashTable, 0);
-	d.m_memSeed.setKernelArg(d.m_kernelInitHashTable, 1);
-	d.m_memHashTable.setKernelArg(d.m_kernelInitHashTable, 2);
-	d.m_memPublicAddress.setKernelArg(d.m_kernelInitHashTable, 3);
-	CLMemory<cl_uchar>::setKernelArg(d.m_kernelInitHashTable, 4, m_mode.extented);
+	if (m_mode.cache) {
+		d.m_memPublicBytes.setKernelArg(d.m_kernelInitHashTable, 0);
+		d.m_memHashTable.setKernelArg(d.m_kernelInitHashTable, 1);
+		CLMemory<cl_uchar>::setKernelArg(d.m_kernelInitHashTable, 2, m_mode.extended);
+	} else {
+		d.m_memPrecomp.setKernelArg(d.m_kernelInitHashTable, 0);
+		d.m_memSeed.setKernelArg(d.m_kernelInitHashTable, 1);
+		d.m_memHashTable.setKernelArg(d.m_kernelInitHashTable, 2);
+		d.m_memPublicAddress.setKernelArg(d.m_kernelInitHashTable, 3);
+		CLMemory<cl_uchar>::setKernelArg(d.m_kernelInitHashTable, 4, m_mode.extended);
+	}
 
 	// Kernel arguments - profanity_inverse
 	d.m_memPointsDeltaX.setKernelArg(d.m_kernelInverse, 0);
@@ -388,7 +396,7 @@ void Dispatcher::initBegin(Device & d) {
 
 	if (d.m_mode.name == "reverse") {
 		d.m_memHashTable.setKernelArg(d.m_kernelScore, 5);
-		CLMemory<cl_uchar>::setKernelArg(d.m_kernelScore, 6, m_mode.extented);
+		CLMemory<cl_uchar>::setKernelArg(d.m_kernelScore, 6, m_mode.extended);
 	}
 
 	// Seed device
@@ -434,8 +442,11 @@ void Dispatcher::initHashTableContinue(Device & d) {
 	if (sizeLeft && d.m_iterHashTableInitialized > 0) {
 		const size_t sizeRun = std::min(HASH_TABLE_JOB_SIZE, std::min(sizeLeft, m_worksizeMax));
 
-		// TODO: load data if cache is enabled
-		d.m_memSeed.write(false);
+		if (d.m_mode.cache) {
+			d.m_memPublicBytes.write(false);
+		} else {
+			d.m_memSeed.write(false);
+		}
 	
 		const auto resEnqueue = clEnqueueNDRangeKernel(d.m_clQueue, d.m_kernelInitHashTable, 1, &d.m_sizeHashTableInitialized, &sizeRun, NULL, 0, NULL, NULL);
 		OpenCLException::throwIfError("kernel queueing failed during initilization", resEnqueue);
@@ -626,11 +637,23 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 
 			if (d.m_mode.cache) {
 				if (d.m_iterHashTableInitialized == 0) {
-					// TODO: load hashmap
+					std::string mapFilename = "cache/map/" + toString(d.m_batchIndex) + ".bin";
+					readMap(mapFilename, d.m_addressToIndex);
+					std::cout << d.m_addressToIndex.size() << std::endl;
+
+					d.m_addresses.resize(d.m_addressToIndex.size());
+					const size_t offset = d.m_batchIndex * m_HashTableSize;
+					for (const auto & it: d.m_addressToIndex) {
+						d.m_addresses[it.second - offset] = it.first;
+					}
 				}
 
 				if (iterDone < iterTotal) {
-					// TODO: load bitset
+					for (size_t i = 0; i < HASH_TABLE_JOB_SIZE; ++i) {
+						d.m_memPublicBytes[3 * i + 0] = d.m_addresses[i].c;
+						d.m_memPublicBytes[3 * i + 1] = d.m_addresses[i].d;
+						d.m_memPublicBytes[3 * i + 2] = d.m_addresses[i].e;
+					}
 				}
 			} else {
 				if (d.m_iterHashTableInitialized > 1) {
@@ -655,9 +678,6 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 			} else if (m_mode.name == "hashTable") {
 				std::string mapFilename = "cache/map/" + toString(d.m_batchIndex) + ".bin";
 				writeMap(mapFilename, d.m_addressToIndex);
-
-				std::string bitsetFilename = "cache/bitset/" + toString(d.m_batchIndex) + ".bin";
-				writeBitset(bitsetFilename, d.m_memHashTable.data(), HASH_TABLE_SIZE * (m_mode.extented ? 2 : 1));
 
 				clSetUserEventStatus(d.m_eventFinished, CL_COMPLETE);
 			} else {
@@ -755,7 +775,6 @@ std::string Dispatcher::formatSpeed(double f) {
 	return ss.str();
 }
 
-
 void Dispatcher::writeMap(std::string& filename, std::map<Device::Address, int>& map) {
 	std::ofstream file;
     file.open(filename, std::ios::binary | std::ios::out);
@@ -792,26 +811,4 @@ void Dispatcher::readMap(std::string& filename, std::map<Device::Address, int>& 
 	}
 
 	file.close();
-}
-
-void Dispatcher::writeBitset(std::string& filename, cl_ulong data[], size_t size) {
-    std::ofstream file;
-    file.open(filename, std::ios::binary | std::ios::out);
-	
-	for (size_t i = 0; i < size; ++i) {
-        file.write((char*)(&data[i]), sizeof(data[i]));
-    }
-
-    file.close();
-}
-
-void Dispatcher::readBitset(std::string& filename, cl_ulong data[], size_t size) {
-	std::ifstream file;
-    file.open(filename, std::ios::binary | std::ios::in);
-
-    for (size_t i = 0; i < size; ++i) {
-        file.read((char*)(&data[i]), sizeof(data[i]));
-    }
-    
-    file.close();
 }

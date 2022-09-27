@@ -72,7 +72,7 @@ Mode Mode::reverse(const std::string strPublicAddress, const int steps, const bo
 	r.targetAddress.x = parseCoordinate(strPublicAddress.substr(2, 64));
 	r.targetAddress.y = parseCoordinate(strPublicAddress.substr(66, 64));
 	r.steps = steps;
-	r.extented = extented;
+	r.extended = extented;
 	r.cache = cache;
 
 	return r;
@@ -82,7 +82,7 @@ Mode Mode::hashTable(const bool extented) {
 	Mode r;
 	r.name = "hashTable";
 	r.kernel = "profanity_score_reverse";
-	r.extented = extented;
+	r.extended = extented;
 	
 	return r;
 }
