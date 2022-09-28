@@ -63,7 +63,7 @@ static void printResult(cl_ulong4 seed, cl_ulong round, result r, cl_uchar score
 
 	// Print
 	const std::string strVT100ClearLine = "\33[2K\r";
-	// std::cout << "id: " << r.foundId << ", round: " << int(round) << std::endl;
+	// std::cout << "id: " << r.foundId << ", round: " << int(round) << std::endl << std::endl;
 	std::cout << strVT100ClearLine << "  Time: " << std::setw(5) << seconds << "s Score: " << std::setw(2) << (int) score << " Private: 0x" << strPrivate << ' ';
 
 	std::cout << mode.transformName();
@@ -595,7 +595,7 @@ void Dispatcher::handleReverse(Device & d) {
 					m_clScoreMax = PROFANITY_MAX_SCORE;
 					m_quit = true;
 
-					size_t seed = d.m_batchIndex * m_HashTableSize + it->second;
+					size_t seed = it->second;
 					cl_ulong4 rootKey = getPrivateKey(seed);
 
 					// Time delta
@@ -605,7 +605,7 @@ void Dispatcher::handleReverse(Device & d) {
 					const std::string strPrivate = privateKeyToStr(privateKey);
 					// Print
 					const std::string strVT100ClearLine = "\33[2K\r";
-					std::cout << "Id: " << r.foundId << " Round:" << d.m_round - 2 << std::endl;
+					// std::cout << "Id: " << r.foundId << " Round:" << d.m_round - 2 << std::endl << std::endl;
 					std::cout << strVT100ClearLine << "  Time: " << std::setw(5) << seconds << " Private: 0x" << strPrivate << std::endl;
 				}
 			} else {
