@@ -724,7 +724,6 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 			printSpeed();
 
 			if( m_quit ) {
-				std::cout << "Quit requested" << std::endl;
 				bDispatch = false;
 				if(--m_countRunning == 0) {
 					clSetUserEventStatus(m_eventFinished, CL_COMPLETE);
