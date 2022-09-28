@@ -229,8 +229,12 @@ void Dispatcher::runReverse() {
 		printTargetAddress(m_mode.targetAddress);
 	}
 
+	if (m_mode.skip) {
+		std::cout << "Skip " << m_mode.skip << " epochs" << std::endl;
+	}
+
 	timeStart = std::chrono::steady_clock::now();
-	for (m_epoch = 0; m_epoch < m_epochsTotal && m_clScoreMax != PROFANITY_MAX_SCORE; ++m_epoch) {
+	for (m_epoch = m_mode.skip; m_epoch < m_epochsTotal && m_clScoreMax != PROFANITY_MAX_SCORE; ++m_epoch) {
 		m_quit = false;
 		m_countRunning = m_vDevices.size();
 		for (size_t i = 0; i < m_countRunning; i++) {

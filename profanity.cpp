@@ -153,6 +153,7 @@ int main(int argc, char * * argv) {
 		bool bModeCache = false;
 		bool bModeHashTable = false;
 		int iModeSteps = 0;
+		int iModeSkip = 0;
 		std::string strModeTarget;
 		std::string strModeLeading;
 		std::string strModeMatching;
@@ -195,6 +196,7 @@ int main(int argc, char * * argv) {
 		argp.addSwitch('e', "extended", bMode16Gb);
 		argp.addSwitch('C', "cache", bModeCache);
 		argp.addSwitch('s', "steps", iModeSteps);
+		argp.addSwitch('S', "skip", iModeSkip);
 		argp.addSwitch('h', "hash-table", bModeHashTable);
 
 		if (!argp.parse()) {
@@ -246,7 +248,7 @@ int main(int argc, char * * argv) {
 				return 1;
 			}
 
-			mode = Mode::reverse(strModeTarget, iModeSteps, bMode16Gb, bModeCache);
+			mode = Mode::reverse(strModeTarget, iModeSteps, bMode16Gb, bModeCache, iModeSkip);
 		}
 		else {
 			std::cout << g_strHelp << std::endl;

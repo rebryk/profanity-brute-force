@@ -16,10 +16,10 @@ endif
 all: $(SOURCES) $(EXECUTABLE)
 
 $(EXECUTABLE): $(OBJECTS)
-	$(CC) -g $(OBJECTS) $(LDFLAGS) -o $@
+	$(CC) $(OBJECTS) $(LDFLAGS) -o $@
 
 .cpp.o:
-	$(CC) -g $(CFLAGS) $(CDEFINES) $< -o $@
+	$(CC) $(CFLAGS) $(CDEFINES) $< -o $@
 
 clean:
 	rm -rf *.o *.x64
