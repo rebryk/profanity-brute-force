@@ -236,6 +236,7 @@ void Dispatcher::runReverse() {
 			m_vDevices[i]->m_batchIndex = m_epoch * m_countRunning + i;
 		}
 
+		std::cout << "Run initialization..." << std::endl;
 		const auto initStart = std::chrono::steady_clock::now();
 		init();
 		const auto timeInitialization = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - initStart).count();
@@ -245,6 +246,8 @@ void Dispatcher::runReverse() {
 			continue;
 		}
 
+		std::cout << "Run epoch " << m_epoch + 1 << "..." << std::endl;
+		const auto runStart = std::chrono::steady_clock::now();
 		m_eventFinished = clCreateUserEvent(m_clContext, NULL);
 
 		for (auto it = m_vDevices.begin(); it != m_vDevices.end(); ++it) {
@@ -254,6 +257,9 @@ void Dispatcher::runReverse() {
 		clWaitForEvents(1, &m_eventFinished);
 		clReleaseEvent(m_eventFinished);
 		m_eventFinished = NULL;
+
+		const auto timeRun = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - runStart).count();
+		std::cout << "Epoch time: " << timeRun << " seconds" << std::endl;
 	}
 }
 
@@ -434,10 +440,12 @@ void Dispatcher::initHashTableContinue(Device & d) {
 	cl_event event;
 	d.m_memPublicAddress.read(false, &event);
 
-	const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeStart).count();
-	const float progress = m_sizeHashTableInitDone * 100.0 / m_sizeHashTableInitTotal;
-	const size_t remaining = (100.0 - progress) * (seconds / progress);
-	std::cout << "  " << size_t(progress) << "% (remaining " << remaining << ")" << "\r" << std::flush;
+	if (d.m_index == 0) {
+		const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeStart).count();
+		const float progress = m_sizeHashTableInitDone * 100.0 / m_sizeHashTableInitTotal;
+		const size_t remaining = (100.0 - progress) * (seconds / progress);
+		std::cout << "  " << size_t(progress) << "% (remaining " << remaining << ")" << "\r" << std::flush;
+	}
 
 	const size_t sizeLeft = m_HashTableSize - d.m_sizeHashTableInitialized;
 	if (sizeLeft && d.m_iterHashTableInitialized > 0) {
@@ -689,8 +697,7 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 		}
 	} else {
 		++d.m_round;
-		m_step = d.m_round;
-
+		
 		if (m_mode.name == "reverse") {
 			handleReverse(d);
 		} else {
@@ -700,10 +707,12 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 		bool bDispatch = true;
 		{
 			std::lock_guard<std::mutex> lock(m_mutex);
-			d.m_speed.sample(m_size);
-			printSpeed();
+			// d.m_speed.sample(m_size);
+			// m_step = d.m_round;
+			// printSpeed();
 
 			if( m_quit ) {
+				std::cout << "Quit requested" << std::endl;
 				bDispatch = false;
 				if(--m_countRunning == 0) {
 					clSetUserEventStatus(m_eventFinished, CL_COMPLETE);
@@ -742,7 +751,7 @@ void Dispatcher::printSpeed() {
 			const size_t remaining = (100.0 - progress) * (seconds / progress);
 			
 			std::ostringstream strProgressBuilder;
-			strProgressBuilder << std::setfill(' ') << std::setw(3) << size_t(progress) << "%:";
+			strProgressBuilder << "Epoch: " << (m_epoch + 1) << std::setfill(' ') << std::setw(3) << size_t(progress) << "%:";
 			strProgress = strProgressBuilder.str();
 
 			std::ostringstream strTimeBuilder;
