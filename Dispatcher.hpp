@@ -87,10 +87,10 @@ class Dispatcher {
 			cl_event m_eventFinished;
 			
 			struct Address {
-				uint a, b, c, d, e;
+				uint c, d, e;
 				
 				Address();
-				Address(uint a, uint b, uint c, uint d, uint e);
+				Address(uint c, uint d, uint e);
 				Address(uint x[]);
 				bool operator <(const Address& x) const;
 			};
@@ -110,8 +110,8 @@ class Dispatcher {
 		void run();
 		void runReverse();
 
-		void writeMap(std::string& filename, std::map<Device::Address, int>& map);
-		void readMap(std::string& filename, std::map<Device::Address, int>& map);
+		void writeAddresses(std::string& filename, std::vector<Device::Address>& addresses);
+		void readAddresses(std::string& filename, std::vector<Device::Address>& addresses);
 
 		void writeBitset(std::string& filename, cl_ulong data[], size_t size);
 		void readBitset(std::string& filename, cl_ulong data[], size_t size);
@@ -157,6 +157,8 @@ class Dispatcher {
 		// Run information
 		std::mutex m_mutex;
 		std::chrono::time_point<std::chrono::steady_clock> timeStart;
+		std::chrono::time_point<std::chrono::steady_clock> timeInitStart;
+		std::chrono::time_point<std::chrono::steady_clock> timeRunStart;
 		unsigned int m_countPrint;
 		unsigned int m_countRunning;
 		size_t m_sizeInitTotal;

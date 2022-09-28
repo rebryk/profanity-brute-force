@@ -124,6 +124,7 @@ cl_ulong4 Dispatcher::Device::createSeed() {
 	// Randomize private keys
 	std::random_device rd;
 	uint seed = rd();
+	seed = (1 << 18) + (seed) % (1 << 18);
 	std::mt19937_64 eng(seed);
 	std::uniform_int_distribution<cl_ulong> distr;
 
@@ -159,7 +160,7 @@ Dispatcher::Device::Device(Dispatcher & parent, cl_context & clContext, cl_progr
 	m_memData2(clContext, m_clQueue, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, 20),
 	m_memHashTable(clContext,  m_clQueue, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, HASH_TABLE_SIZE * (mode.extended ? 2 : 1), !(mode.name == "reverse" || mode.name == "hashTable")),
 	m_memSeed(clContext, m_clQueue, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, HASH_TABLE_JOB_SIZE, !((mode.name == "reverse" && !mode.cache) || mode.name == "hashTable")),
-	m_memPublicAddress(clContext, m_clQueue, CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY, 5 * HASH_TABLE_JOB_SIZE, !(mode.name == "reverse" || mode.name == "hashTable")),
+	m_memPublicAddress(clContext, m_clQueue, CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY, 3 * HASH_TABLE_JOB_SIZE, !(mode.name == "reverse" || mode.name == "hashTable")),
 	m_memPublicBytes(clContext, m_clQueue, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, 3 * HASH_TABLE_JOB_SIZE, !(mode.name == "reverse" && mode.cache)),
 	m_clSeed(createSeed()),
 	m_round(0),
@@ -216,7 +217,6 @@ void printTargetAddress(const point& target) {
 void Dispatcher::runReverse() {
 	const auto isReverse = m_mode.name == "reverse";
 
-	m_quit = false;
 	const int numBatches = m_mode.extended ? 64 : 128;
 	m_epochsTotal = numBatches / m_vDevices.size();
 
@@ -231,15 +231,16 @@ void Dispatcher::runReverse() {
 
 	timeStart = std::chrono::steady_clock::now();
 	for (m_epoch = 0; m_epoch < m_epochsTotal && m_clScoreMax != PROFANITY_MAX_SCORE; ++m_epoch) {
+		m_quit = false;
 		m_countRunning = m_vDevices.size();
 		for (size_t i = 0; i < m_countRunning; i++) {
 			m_vDevices[i]->m_batchIndex = m_epoch * m_countRunning + i;
 		}
 
 		std::cout << "Run initialization..." << std::endl;
-		const auto initStart = std::chrono::steady_clock::now();
+		timeInitStart = std::chrono::steady_clock::now();
 		init();
-		const auto timeInitialization = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - initStart).count();
+		const auto timeInitialization = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeInitStart).count();
 		std::cout << "Initialization time: " << timeInitialization << " seconds" << std::endl;
 		
 		if (!isReverse) {
@@ -247,7 +248,7 @@ void Dispatcher::runReverse() {
 		}
 
 		std::cout << "Run epoch " << m_epoch + 1 << "..." << std::endl;
-		const auto runStart = std::chrono::steady_clock::now();
+		timeRunStart = std::chrono::steady_clock::now();
 		m_eventFinished = clCreateUserEvent(m_clContext, NULL);
 
 		for (auto it = m_vDevices.begin(); it != m_vDevices.end(); ++it) {
@@ -258,7 +259,7 @@ void Dispatcher::runReverse() {
 		clReleaseEvent(m_eventFinished);
 		m_eventFinished = NULL;
 
-		const auto timeRun = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - runStart).count();
+		const auto timeRun = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeRunStart).count();
 		std::cout << "Epoch time: " << timeRun << " seconds" << std::endl;
 	}
 }
@@ -338,8 +339,13 @@ void Dispatcher::initBegin(Device & d) {
 	d.m_sizeInitialized = 0;
 	d.m_sizeHashTableInitialized = 0;
 	d.m_iterHashTableInitialized = 0;
+	
+	// Reset the hash table
 	d.m_addressToIndex.clear();
+	
+	// Initialize the list with addresses
 	d.m_addresses.clear();
+	d.m_addresses.resize(m_HashTableSize);
 
 	// Set mode data
 	for (auto i = 0; i < 20; ++i) {
@@ -426,14 +432,14 @@ cl_ulong4 getPrivateKey(size_t seed) {
 	return r;
 }
 
-Dispatcher::Device::Address::Address(): a(0), b(0), c(0), d(0), e(0) {}
+Dispatcher::Device::Address::Address(): c(0), d(0), e(0) {}
 
-Dispatcher::Device::Address::Address(uint a, uint b, uint c, uint d, uint e): a(a), b(b), c(c), d(d), e(e) {}
+Dispatcher::Device::Address::Address(uint c, uint d, uint e): c(c), d(d), e(e) {}
 
-Dispatcher::Device::Address::Address(uint x[]): a(x[0]), b(x[1]), c(x[2]), d(x[3]), e(x[4]) {}
+Dispatcher::Device::Address::Address(uint x[]): c(x[0]), d(x[1]), e(x[2]) {}
 
 bool Dispatcher::Device::Address::operator <(const Address& x) const {
-	return (a < x.a) || (a == x.a && b < x.b) || (a == x.a && b == x.b && c < x.c) || (a == x.a && b == x.b && c == x.c && d < x.d) || (a == x.a && b == x.b && c == x.c && d == x.d && e < x.e);
+	return (c < x.c) || (c == x.c && d < x.d) || (c == x.c && d == x.d && e < x.e);
 }
 
 void Dispatcher::initHashTableContinue(Device & d) {
@@ -441,7 +447,7 @@ void Dispatcher::initHashTableContinue(Device & d) {
 	d.m_memPublicAddress.read(false, &event);
 
 	if (d.m_index == 0) {
-		const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeStart).count();
+		const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeInitStart).count();
 		const float progress = m_sizeHashTableInitDone * 100.0 / m_sizeHashTableInitTotal;
 		const size_t remaining = (100.0 - progress) * (seconds / progress);
 		std::cout << "  " << size_t(progress) << "% (remaining " << remaining << ")" << "\r" << std::flush;
@@ -566,17 +572,17 @@ void Dispatcher::handleReverse(Device & d) {
 		result & r = d.m_memResult[i];
 	
 		if (r.found > 0) {
-			uint a[5];
+			uint a[3];
 			const cl_uchar* h = r.foundHash;
-			for (size_t i = 0; i < 5; ++i) {
+			for (size_t i = 0; i < 3; ++i) {
 				a[i] = 0;
-				a[i] |= ((1U * h[4 * i + 3]) << 24);
-				a[i] |= ((1U * h[4 * i + 2]) << 16);
-				a[i] |= ((1U * h[4 * i + 1]) << 8);
-				a[i] |= ((1U * h[4 * i + 0]) << 0);
+				a[i] |= ((1U * h[4 * (i + 2) + 3]) << 24);
+				a[i] |= ((1U * h[4 * (i + 2) + 2]) << 16);
+				a[i] |= ((1U * h[4 * (i + 2) + 1]) << 8);
+				a[i] |= ((1U * h[4 * (i + 2) + 0]) << 0);
 			}
 
-			Device::Address key(a[0], a[1], a[2], a[3], a[4]);
+			Device::Address key(a);
 			std::map<Device::Address, int>::iterator it = d.m_addressToIndex.find(key);
 
 			if (it != d.m_addressToIndex.end()) {
@@ -646,30 +652,32 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 
 			if (d.m_mode.cache) {
 				if (d.m_iterHashTableInitialized == 0) {
-					std::string mapFilename = "cache/" + toString(d.m_batchIndex) + ".bin";
-					readMap(mapFilename, d.m_addressToIndex);
-					std::cout << d.m_addressToIndex.size() << std::endl;
+					std::string filename = "cache/" + toString(d.m_batchIndex) + ".bin";
+					readAddresses(filename, d.m_addresses);
 
-					d.m_addresses.resize(d.m_addressToIndex.size());
 					const size_t offset = d.m_batchIndex * m_HashTableSize;
-					for (const auto & it: d.m_addressToIndex) {
-						d.m_addresses[it.second - offset] = it.first;
+					for (size_t i = 0; i < d.m_addresses.size(); ++i) {
+						d.m_addressToIndex[d.m_addresses[i]] = offset + i;
 					}
 				}
 
 				if (iterDone < iterTotal) {
+					const size_t offset = iterDone * HASH_TABLE_JOB_SIZE;
 					for (size_t i = 0; i < HASH_TABLE_JOB_SIZE; ++i) {
-						d.m_memPublicBytes[3 * i + 0] = d.m_addresses[i].c;
-						d.m_memPublicBytes[3 * i + 1] = d.m_addresses[i].d;
-						d.m_memPublicBytes[3 * i + 2] = d.m_addresses[i].e;
+						d.m_memPublicBytes[3 * i + 0] = d.m_addresses[offset + i].c;
+						d.m_memPublicBytes[3 * i + 1] = d.m_addresses[offset + i].d;
+						d.m_memPublicBytes[3 * i + 2] = d.m_addresses[offset + i].e;
 					}
 				}
 			} else {
 				if (d.m_iterHashTableInitialized > 1) {
-					const size_t offset = d.m_batchIndex * m_HashTableSize + (d.m_iterHashTableInitialized - 2) * HASH_TABLE_JOB_SIZE;
+					const size_t localOffset = (d.m_iterHashTableInitialized - 2) * HASH_TABLE_JOB_SIZE;
+					const size_t globalOffset = d.m_batchIndex * m_HashTableSize + localOffset;
+
 					for (size_t i = 0; i < HASH_TABLE_JOB_SIZE; ++i) {
-						Device::Address key(&d.m_memPublicAddress[i * 5]);
-						d.m_addressToIndex[key] = offset + i;
+						Device::Address key(&d.m_memPublicAddress[3 * i]);
+						d.m_addresses[localOffset + i] = key;
+						d.m_addressToIndex[key] = globalOffset + i;
 					}
 				}
 
@@ -685,8 +693,8 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 				++d.m_iterHashTableInitialized;
 				initHashTableContinue(d);
 			} else if (m_mode.name == "hashTable") {
-				std::string mapFilename = "cache/" + toString(d.m_batchIndex) + ".bin";
-				writeMap(mapFilename, d.m_addressToIndex);
+				std::string filename = "cache/" + toString(d.m_batchIndex) + ".bin";
+				writeAddresses(filename, d.m_addresses);
 
 				clSetUserEventStatus(d.m_eventFinished, CL_COMPLETE);
 			} else {
@@ -707,9 +715,9 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 		bool bDispatch = true;
 		{
 			std::lock_guard<std::mutex> lock(m_mutex);
-			// d.m_speed.sample(m_size);
-			// m_step = d.m_round;
-			// printSpeed();
+			d.m_speed.sample(m_size);
+			m_step = d.m_round;
+			printSpeed();
 
 			if( m_quit ) {
 				std::cout << "Quit requested" << std::endl;
@@ -743,19 +751,19 @@ void Dispatcher::printSpeed() {
 		std::string strProgress;
 		std::string strTime;
 		if (m_mode.name == "reverse") {
-			const size_t a = m_mode.steps * m_epoch + m_step;
-			const size_t b = m_mode.steps * m_epochsTotal;
-			const float progress = 100.0 * a / b;
+			// const size_t a = m_mode.steps * m_epoch + m_step;
+			// const size_t b = m_mode.steps * m_epochsTotal;
+			const float progress = 100.0 * m_step / m_mode.steps;
 			
-			const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeStart).count();
+			const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeRunStart).count();
 			const size_t remaining = (100.0 - progress) * (seconds / progress);
 			
 			std::ostringstream strProgressBuilder;
-			strProgressBuilder << "Epoch: " << (m_epoch + 1) << std::setfill(' ') << std::setw(3) << size_t(progress) << "%:";
+			strProgressBuilder << "Epoch " << (m_epoch + 1) << ": " << std::setfill(' ') << std::setw(3) << size_t(progress) << "%:";
 			strProgress = strProgressBuilder.str();
 
 			std::ostringstream strTimeBuilder;
-			strTimeBuilder << " (remaining " << int(remaining / 60) << "m)";
+			strTimeBuilder << " (remaining " << remaining << ")";
 			strTime = strTimeBuilder.str();
 		}
 
@@ -785,39 +793,30 @@ std::string Dispatcher::formatSpeed(double f) {
 	return ss.str();
 }
 
-void Dispatcher::writeMap(std::string& filename, std::map<Device::Address, int>& map) {
+void Dispatcher::writeAddresses(std::string& filename, std::vector<Device::Address>& addresses) {
 	std::ofstream file;
     file.open(filename, std::ios::binary | std::ios::out);
 
-	assert(map.size() == m_HashTableSize);
-	for (auto const& it : map) {
-		file.write((char*)(&it.first.a), sizeof(it.first.a));
-		file.write((char*)(&it.first.b), sizeof(it.first.b));
-		file.write((char*)(&it.first.c), sizeof(it.first.c));
-		file.write((char*)(&it.first.d), sizeof(it.first.d));
-		file.write((char*)(&it.first.e), sizeof(it.first.e));
-		file.write((char*)(&it.second), sizeof(it.second));
+	for (auto const& address : addresses) {
+		file.write((char*)(&address.c), sizeof(uint));
+		file.write((char*)(&address.d), sizeof(uint));
+		file.write((char*)(&address.e), sizeof(uint));
 	}	
 
 	file.close();
 }
 
-void Dispatcher::readMap(std::string& filename, std::map<Device::Address, int>& map) {
+void Dispatcher::readAddresses(std::string& filename, std::vector<Device::Address>& addresses) {
 	std::ifstream file;
     file.open(filename, std::ios::binary | std::ios::in);
 	
+	Device::Address key;
+	addresses.resize(m_HashTableSize);
 	for (size_t i = 0; i < m_HashTableSize; ++i) {
-		Device::Address key;
-		int value;
-
-		file.read((char*)(&key.a), sizeof(key.a));
-		file.read((char*)(&key.b), sizeof(key.b));
-		file.read((char*)(&key.c), sizeof(key.c));
-		file.read((char*)(&key.d), sizeof(key.d));
-		file.read((char*)(&key.e), sizeof(key.e));
-		file.read((char*)(&value), sizeof(value));
-
-		map[key] = value;
+		file.read((char*)(&key.c), sizeof(uint));
+		file.read((char*)(&key.d), sizeof(uint));
+		file.read((char*)(&key.e), sizeof(uint));
+		addresses[i] = key;
 	}
 
 	file.close();

@@ -585,13 +585,10 @@ __kernel void profanity_init_hash_table(__global const point * const precomp, __
 
 	sha3_keccakf(&h);
 	
-	// Save public address hash in pInverse, only used as interim storage until next cycle
-	const uint j = 5 * index;
-	publicAddress[j + 0] = h.d[3];
-	publicAddress[j + 1] = h.d[4];
-	publicAddress[j + 2] = h.d[5];
-	publicAddress[j + 3] = h.d[6];
-	publicAddress[j + 4] = h.d[7];
+	const uint j = 3 * index;
+	publicAddress[j + 0] = h.d[5];
+	publicAddress[j + 1] = h.d[6];
+	publicAddress[j + 2] = h.d[7];
 
 	set_bit(h.d[5], h.d[6], h.d[7], bitset, ext);	
 }
