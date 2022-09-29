@@ -64,11 +64,10 @@ static void printResult(cl_ulong4 seed, cl_ulong round, result r, cl_uchar score
 
 	// Print
 	const std::string strVT100ClearLine = "\33[2K\r";
-	// std::cout << "id: " << r.foundId << ", round: " << int(round) << std::endl << std::endl;
 	std::cout << strVT100ClearLine << "  Time: " << std::setw(5) << seconds << "s Score: " << std::setw(2) << (int) score << " Private: 0x" << strPrivate << ' ';
 
 	std::cout << mode.transformName();
-	std::cout << ": 0x" << strPublic << std::endl;
+	std::cout << ": 0x" << strPublic << " id: " << r.foundId << " round: " << int(round) << std::endl;
 }
 
 unsigned int getKernelExecutionTimeMicros(cl_event & e) {
@@ -213,6 +212,10 @@ void printTargetAddress(const point& target) {
 	std::cout << "y = {{";
 	printHexNumber(target.y);
 	std::cout << "}}" << std::endl;
+}
+
+size_t Dispatcher::getEpoch() {
+	return m_epoch;
 }
 
 void Dispatcher::runReverse() {

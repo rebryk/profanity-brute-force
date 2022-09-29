@@ -377,12 +377,25 @@ int main(int argc, char * * argv) {
 
 		std::cout << std::endl;
 
-		Dispatcher d(clContext, clProgram, mode, worksizeMax == 0 ? inverseSize * inverseMultiple : worksizeMax, inverseSize, inverseMultiple, 0);
-		for (auto & i : vDevices) {
-			d.addDevice(i, worksizeLocal, mDeviceIndex[i]);
+		size_t skip = mode.skip;
+		while (true) {
+			mode.skip = skip;
+
+			Dispatcher d(clContext, clProgram, mode, worksizeMax == 0 ? inverseSize * inverseMultiple : worksizeMax, inverseSize, inverseMultiple, 0);
+			for (auto & i : vDevices) {
+				d.addDevice(i, worksizeLocal, mDeviceIndex[i]);
+			}
+
+			try {
+				d.run();
+				break;
+			} catch (...) {
+				const size_t epoch = d.getEpoch();
+				skip = epoch == 0 ? 0 : epoch - 1;
+				std::cout << "Restarting..." << std::endl;
+			}
 		}
 
-		d.run();
 		clReleaseContext(clContext);
 		return 0;
 	} catch (std::runtime_error & e) {

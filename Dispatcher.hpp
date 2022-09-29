@@ -121,6 +121,8 @@ class Dispatcher {
 		void writeBitset(std::string& filename, cl_ulong data[], size_t size);
 		void readBitset(std::string& filename, cl_ulong data[], size_t size);
 
+		size_t getEpoch();
+
 	private:
 		void init();
 		void initBegin(Device & d);
