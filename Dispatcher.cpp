@@ -18,6 +18,7 @@ static const size_t STEPS_OFFSET = 3;
 static const size_t HASH_TABLE_SIZE = 1U << 30; // 1U << 30;
 static const size_t HASH_TABLE_SET_SIZE = 1 << 25; // 1 << 25;
 static const size_t HASH_TABLE_JOB_SIZE = 1 << 18; // 1 << 18;
+static const size_t HASH_TABLE_LOAD_SIZE = 1 << 16; // 1 << 16;
 
 static std::string toHex(const uint8_t * const s, const size_t len) {
 	std::string b("0123456789abcdef");
@@ -161,7 +162,7 @@ Dispatcher::Device::Device(Dispatcher & parent, cl_context & clContext, cl_progr
 	m_memHashTable(clContext,  m_clQueue, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, HASH_TABLE_SIZE * (mode.extended ? 2 : 1), !(mode.name == "reverse" || mode.name == "hashTable")),
 	m_memSeed(clContext, m_clQueue, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, HASH_TABLE_JOB_SIZE, !((mode.name == "reverse" && !mode.cache) || mode.name == "hashTable")),
 	m_memPublicAddress(clContext, m_clQueue, CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY, 3 * HASH_TABLE_JOB_SIZE, !(mode.name == "reverse" || mode.name == "hashTable")),
-	m_memPublicBytes(clContext, m_clQueue, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, 3 * HASH_TABLE_JOB_SIZE, !(mode.name == "reverse" && mode.cache)),
+	m_memPublicBytes(clContext, m_clQueue, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, 3 * HASH_TABLE_LOAD_SIZE, !(mode.name == "reverse" && mode.cache)),
 	m_clSeed(createSeed()),
 	m_round(0),
 	m_speed(PROFANITY_SPEEDSAMPLES),
@@ -346,6 +347,7 @@ void Dispatcher::initBegin(Device & d) {
 	
 	// Reset the hash table
 	d.m_addressToIndex.clear();
+	d.m_addresses.reserve(m_HashTableSize);
 	
 	// Initialize the list with addresses
 	d.m_addresses.clear();
@@ -446,6 +448,25 @@ bool Dispatcher::Device::Address::operator <(const Address& x) const {
 	return (c < x.c) || (c == x.c && d < x.d) || (c == x.c && d == x.d && e < x.e);
 }
 
+bool Dispatcher::Device::Address::operator==(const Address &other) const {
+	return c == other.c && d == other.d && e == other.e;	
+}
+#
+template <class T>
+inline void hash_combine(std::size_t& seed, const T& v)
+{
+    std::hash<T> hasher;
+    seed ^= hasher(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+}
+
+std::size_t Dispatcher::Device::AddressHasher::operator()(const Address& x) const {
+	size_t seed = 0;
+	hash_combine(seed, x.c);
+	hash_combine(seed, x.d);
+	hash_combine(seed, x.e);
+	return seed;
+}
+
 void Dispatcher::initHashTableContinue(Device & d) {
 	cl_event event;
 	d.m_memPublicAddress.read(false, &event);
@@ -459,7 +480,7 @@ void Dispatcher::initHashTableContinue(Device & d) {
 
 	const size_t sizeLeft = m_HashTableSize - d.m_sizeHashTableInitialized;
 	if (sizeLeft && d.m_iterHashTableInitialized > 0) {
-		const size_t sizeRun = std::min(HASH_TABLE_JOB_SIZE, std::min(sizeLeft, m_worksizeMax));
+		const size_t sizeRun = std::min(d.m_mode.cache ? HASH_TABLE_LOAD_SIZE : HASH_TABLE_JOB_SIZE, std::min(sizeLeft, m_worksizeMax));
 
 		if (d.m_mode.cache) {
 			d.m_memPublicBytes.write(false);
@@ -587,7 +608,7 @@ void Dispatcher::handleReverse(Device & d) {
 			}
 
 			Device::Address key(a);
-			std::map<Device::Address, int>::iterator it = d.m_addressToIndex.find(key);
+			auto it = d.m_addressToIndex.find(key);
 
 			if (it != d.m_addressToIndex.end()) {
 				std::lock_guard<std::mutex> lock(m_mutex);
@@ -651,8 +672,9 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 	}
 	else if (d.m_eventFinished != NULL) {
 		if (d.m_mode.name == "reverse" || d.m_mode.name == "hashTable") {
-			const size_t iterTotal = m_HashTableSize / HASH_TABLE_JOB_SIZE;
-			const size_t iterDone = d.m_sizeHashTableInitialized / HASH_TABLE_JOB_SIZE;		
+			const size_t jobSize = (d.m_mode.cache ? HASH_TABLE_LOAD_SIZE : HASH_TABLE_JOB_SIZE);
+			const size_t iterTotal = m_HashTableSize / jobSize;
+			const size_t iterDone = d.m_sizeHashTableInitialized / jobSize;		
 
 			if (d.m_mode.cache) {
 				if (d.m_iterHashTableInitialized == 0) {
@@ -666,8 +688,8 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 				}
 
 				if (iterDone < iterTotal) {
-					const size_t offset = iterDone * HASH_TABLE_JOB_SIZE;
-					for (size_t i = 0; i < HASH_TABLE_JOB_SIZE; ++i) {
+					const size_t offset = iterDone * HASH_TABLE_LOAD_SIZE;
+					for (size_t i = 0; i < HASH_TABLE_LOAD_SIZE; ++i) {
 						d.m_memPublicBytes[3 * i + 0] = d.m_addresses[offset + i].c;
 						d.m_memPublicBytes[3 * i + 1] = d.m_addresses[offset + i].d;
 						d.m_memPublicBytes[3 * i + 2] = d.m_addresses[offset + i].e;
@@ -696,13 +718,17 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 			if (d.m_iterHashTableInitialized <= iterTotal) {
 				++d.m_iterHashTableInitialized;
 				initHashTableContinue(d);
-			} else if (m_mode.name == "hashTable") {
-				std::string filename = "cache/" + toString(d.m_batchIndex) + ".bin";
-				writeAddresses(filename, d.m_addresses);
-
-				clSetUserEventStatus(d.m_eventFinished, CL_COMPLETE);
 			} else {
-				initContinue(d);
+				if (m_mode.name == "hashTable" || (m_mode.artifacts && !m_mode.cache)) {
+					std::string filename = "cache/" + toString(d.m_batchIndex) + ".bin";
+					writeAddresses(filename, d.m_addresses);
+
+					clSetUserEventStatus(d.m_eventFinished, CL_COMPLETE);
+				}
+
+				if (m_mode.name != "hashTable") {
+					initContinue(d);
+				}
 			}
 		} else {
 			initContinue(d);

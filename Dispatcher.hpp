@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 #include <mutex>
-#include <map>
+#include <unordered_map>
 
 #if defined(__APPLE__) || defined(__MACOSX)
 #include <OpenCL/cl.h>
@@ -93,12 +93,17 @@ class Dispatcher {
 				Address(uint c, uint d, uint e);
 				Address(uint x[]);
 				bool operator <(const Address& x) const;
+				bool operator==(const Address &other) const;
+			};
+
+			struct AddressHasher {
+				std::size_t operator()(const Address& x) const;
 			};
 
 			// HashTable Initialization
 			size_t m_iterHashTableInitialized;
 			size_t m_sizeHashTableInitialized;
-			std::map<Address, int> m_addressToIndex;
+			std::unordered_map<Address, int, AddressHasher> m_addressToIndex;
 			std::vector<Address> m_addresses;
 		};
 
