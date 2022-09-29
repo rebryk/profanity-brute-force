@@ -18,7 +18,7 @@ static const size_t STEPS_OFFSET = 3;
 static const size_t HASH_TABLE_SIZE = 1U << 30; // 1U << 30;
 static const size_t HASH_TABLE_SET_SIZE = 1 << 25; // 1 << 25;
 static const size_t HASH_TABLE_JOB_SIZE = 1 << 18; // 1 << 18;
-static const size_t HASH_TABLE_LOAD_SIZE = 1 << 16; // 1 << 16;
+static const size_t HASH_TABLE_LOAD_SIZE = 1 << 18; // 1 << 18;
 
 static std::string toHex(const uint8_t * const s, const size_t len) {
 	std::string b("0123456789abcdef");
@@ -475,7 +475,7 @@ void Dispatcher::initHashTableContinue(Device & d) {
 		const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeInitStart).count();
 		const float progress = m_sizeHashTableInitDone * 100.0 / m_sizeHashTableInitTotal;
 		const size_t remaining = (100.0 - progress) * (seconds / progress);
-		std::cout << "  " << size_t(progress) << "% (remaining " << remaining << ")" << "\r" << std::flush;
+		std::cout << "  " << size_t(progress) << "% (remaining " << (progress > 0 ? remaining : 0) << ")" << "\r" << std::flush;
 	}
 
 	const size_t sizeLeft = m_HashTableSize - d.m_sizeHashTableInitialized;

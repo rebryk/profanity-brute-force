@@ -593,9 +593,10 @@ __kernel void profanity_init_hash_table(__global const point * const precomp, __
 	set_bit(h.d[5], h.d[6], h.d[7], bitset, ext);	
 }
 
-__kernel void profanity_init_hash_table_from_bytes(__global uint * bytes, __global ulong * bitset, const uchar ext) {
+__kernel void profanity_init_hash_table_from_bytes(__global const uint * bytes, __global ulong * bitset, const uchar ext) {
 	const size_t id = get_global_id(0);
-	const uint index = 3 * id;
+	const size_t offset = get_global_offset(0);
+	const uint index = 3 * (id - offset);
 	set_bit(bytes[index + 0], bytes[index + 1], bytes[index + 2], bitset, ext);
 }
 
