@@ -539,16 +539,16 @@ __kernel void profanity_init(__global const point * const precomp, __global mp_n
 	}
 }
 
-void set_bit(const uint a, const uint b, const uint c, __global ulong * bitset, const uchar ext) {
+void set_bit(const uint a, const uint b, const uint c, __global uint * bitset, const uchar ext) {
 	// k has 30 bits (or 31 in extended mode)
-	const uint k = c >> (ext > 0 ? 1 : 2);
-	// m has 64 bits
-	const ulong m = ((1UL * a) << 32) | b;
-	// TODO: use atomic
-	bitset[k] = m;
+	const uint k = (c >> (ext > 0 ? 1 : 2)) << 1;
+	const uint old = atomic_cmpxchg(&bitset[k], 0, b);
+	if (old == 0) {
+		bitset[k + 1] = a;
+	}
 }
 
-__kernel void profanity_init_hash_table(__global const point * const precomp, __global ulong4 * const seed, __global ulong * bitset, __global uint * publicAddress, const uchar ext) {
+__kernel void profanity_init_hash_table(__global const point * const precomp, __global ulong4 * const seed, __global uint * bitset, __global uint * publicAddress, const uchar ext) {
 	const size_t id = get_global_id(0);
 	const size_t offset = get_global_offset(0);
 	
@@ -593,20 +593,12 @@ __kernel void profanity_init_hash_table(__global const point * const precomp, __
 	set_bit(h.d[5], h.d[6], h.d[7], bitset, ext);	
 }
 
-__kernel void profanity_init_hash_table_from_bytes(__global const uint * bytes, __global ulong * bitset, const uchar ext) {
+__kernel void profanity_init_hash_table_from_bytes(__global const uint * bytes, __global uint * bitset, const uchar ext) {
 	const size_t id = get_global_id(0);
 	const size_t offset = get_global_offset(0);
 	const uint index = 3 * (id - offset);
 	set_bit(bytes[index + 0], bytes[index + 1], bytes[index + 2], bitset, ext);
 }
-
-// __kernel void profanity_copy_hash_table(__global ulong * chunk, __global ulong * bitset) {
-// 	const size_t id = get_global_id(0);
-// 	const size_t offset = get_global_offset(0);
-	
-// 	const size_t index = id - offset;
-// 	bitset[id] = chunk[index];
-// }
 
 __kernel void profanity_inverse_reverse(__global const mp_number * const pDeltaX, __global mp_number * const pInverse) {
 	const size_t id = get_global_id(0) * PROFANITY_INVERSE_SIZE;
@@ -1090,17 +1082,13 @@ __kernel void profanity_score_doubles(__global mp_number * const pInverse, __glo
 	profanity_result_update(id, hash, pResult, score, scoreMax);
 }
 
-__kernel void profanity_score_reverse(__global mp_number * const pInverse, __global result * const pResult, __constant const uchar * const data1, __constant const uchar * const data2, const uchar scoreMax, __global ulong * bitset, const uchar ext) {
+__kernel void profanity_score_reverse(__global mp_number * const pInverse, __global result * const pResult, __constant const uchar * const data1, __constant const uchar * const data2, const uchar scoreMax, __global uint * bitset, const uchar ext) {
 	const size_t id = get_global_id(0);
 	__global const uchar * const hash = pInverse[id].d;
 	
 	// k has 30 bits (or 31 in extended mode)
-	const uint k = pInverse[id].d[4] >> (ext > 0 ? 1 : 2);
-	// m has 64 bits
-	const ulong m = ((1UL * pInverse[id].d[2]) << 32) | pInverse[id].d[3];
-
-	// Set bits in bitset
-	if (bitset[k] == m) {
+	const uint k = (pInverse[id].d[4] >> (ext > 0 ? 1 : 2)) << 1;
+	if (bitset[k] == pInverse[id].d[3] && bitset[k + 1] == pInverse[id].d[2]) {
 		profanity_result_update(id, hash, pResult, (id % PROFANITY_MAX_SCORE) + 1, scoreMax);
 	}
 }

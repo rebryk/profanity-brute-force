@@ -64,7 +64,7 @@ class Dispatcher {
 			CLMemory<mp_number> m_memPrevLambda;
 			CLMemory<result> m_memResult;
 			CLMemory<cl_ulong4> m_memSeed;
-			CLMemory<cl_ulong> m_memHashTable;
+			CLMemory<cl_uint> m_memHashTable;
 			CLMemory<cl_uint> m_memPublicAddress;
 			CLMemory<cl_uint> m_memPublicBytes;
 
