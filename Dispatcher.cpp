@@ -723,7 +723,9 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 					std::string filename = "cache/" + toString(d.m_batchIndex) + ".bin";
 					writeAddresses(filename, d.m_addresses);
 
-					clSetUserEventStatus(d.m_eventFinished, CL_COMPLETE);
+					if (m_mode.name == "hashTable") {
+						clSetUserEventStatus(d.m_eventFinished, CL_COMPLETE);
+					}
 				}
 
 				if (m_mode.name != "hashTable") {
@@ -833,7 +835,7 @@ void Dispatcher::writeAddresses(std::string& filename, std::vector<Device::Addre
 		file.write((char*)(&address.c), sizeof(uint));
 		file.write((char*)(&address.d), sizeof(uint));
 		file.write((char*)(&address.e), sizeof(uint));
-	}	
+	}
 
 	file.close();
 }

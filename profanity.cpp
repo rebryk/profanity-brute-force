@@ -389,7 +389,7 @@ int main(int argc, char * * argv) {
 			try {
 				d.run();
 				break;
-			} catch (...) {
+			} catch (std::exception& e) {
 				const size_t epoch = d.getEpoch();
 				skip = epoch == 0 ? 0 : epoch - 1;
 				std::cout << "Restarting..." << std::endl;
