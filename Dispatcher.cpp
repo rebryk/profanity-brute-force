@@ -323,6 +323,9 @@ void Dispatcher::init() {
 	m_sizeHashTableInitTotal = m_HashTableSize * deviceCount;
 	m_sizeHashTableInitDone = 0;
 
+	m_stepsTotal = m_mode.steps * deviceCount;
+	m_stepsDone = 0;
+
 	cl_event * const pInitEvents = new cl_event[deviceCount];
 
 	for (size_t i = 0; i < deviceCount; ++i) {
@@ -478,7 +481,7 @@ void Dispatcher::initHashTableContinue(Device & d) {
 		const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeInitStart).count();
 		const float progress = m_sizeHashTableInitDone * 100.0 / m_sizeHashTableInitTotal;
 		const size_t remaining = (100.0 - progress) * (seconds / progress);
-		std::cout << "  " << size_t(progress) << "% (remaining " << (progress > 0 ? remaining : 0) << ")" << "\r" << std::flush;
+		std::cout << "  " << size_t(progress) << "% (remaining " << std::setfill(' ') << std::setw(3) << (progress > 0 ? remaining : 0) << ")" << "\r" << std::flush;
 	}
 
 	const size_t sizeLeft = m_HashTableSize - d.m_sizeHashTableInitialized;
@@ -486,9 +489,9 @@ void Dispatcher::initHashTableContinue(Device & d) {
 		const size_t sizeRun = std::min(d.m_mode.cache ? HASH_TABLE_LOAD_SIZE : HASH_TABLE_JOB_SIZE, std::min(sizeLeft, m_worksizeMax));
 
 		if (d.m_mode.cache) {
-			d.m_memPublicBytes.write(false);
+			d.m_memPublicBytes.write(true);
 		} else {
-			d.m_memSeed.write(false);
+			d.m_memSeed.write(true);
 		}
 	
 		const auto resEnqueue = clEnqueueNDRangeKernel(d.m_clQueue, d.m_kernelInitHashTable, 1, &d.m_sizeHashTableInitialized, &sizeRun, NULL, 0, NULL, NULL);
@@ -629,19 +632,13 @@ void Dispatcher::handleReverse(Device & d) {
 					const std::string strPrivate = privateKeyToStr(privateKey);
 					// Print
 					const std::string strVT100ClearLine = "\33[2K\r";
-					// std::cout << "Id: " << r.foundId << " Round:" << d.m_round - 2 << std::endl << std::endl;
-					std::cout << strVT100ClearLine << "  Time: " << std::setw(5) << seconds << " Private: 0x" << strPrivate << std::endl;
+					std::cout << "Id: " << r.foundId << " Round: " << d.m_round - 2 << std::endl;
+					std::cout << strVT100ClearLine << "Time: " << std::setw(5) << seconds << " Private: 0x" << strPrivate << std::endl;
 				}
 			} else {
-				std::cout << "Found the wrong candidate" << std::endl;
+				// std::cout << "Found the wrong candidate" << std::endl;
 			}
 		}
-	}
-
-	std::lock_guard<std::mutex> lock(m_mutex);
-	if (m_quit == false && d.m_round == m_mode.steps + STEPS_OFFSET) {
-		std::cout << "Step limit reached, no canidates found" << std::endl;
-		m_quit = true;
 	}
 }
 
@@ -739,6 +736,16 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 	} else {
 		++d.m_round;
 		
+		{
+			std::lock_guard<std::mutex> lock(m_mutex);
+			m_stepsDone += 1;
+
+			d.m_speed.sample(m_size);
+			if (d.m_index == 0 && !m_quit) {
+				printSpeed();
+			}
+		}
+
 		if (m_mode.name == "reverse") {
 			handleReverse(d);
 		} else {
@@ -748,11 +755,7 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 		bool bDispatch = true;
 		{
 			std::lock_guard<std::mutex> lock(m_mutex);
-			d.m_speed.sample(m_size);
-			m_step = d.m_round;
-			printSpeed();
-
-			if( m_quit ) {
+			if (m_quit || d.m_round == m_mode.steps + STEPS_OFFSET) {
 				bDispatch = false;
 				if(--m_countRunning == 0) {
 					clSetUserEventStatus(m_eventFinished, CL_COMPLETE);
@@ -768,41 +771,38 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 
 // This is run when m_mutex is held.
 void Dispatcher::printSpeed() {
-	++m_countPrint;
-	if( m_countPrint > m_vDevices.size() ) {
-		std::string strGPUs;
-		double speedTotal = 0;
-		unsigned int i = 0;
-		for (auto & e : m_vDevices) {
-			const auto curSpeed = e->m_speed.getSpeed();
-			speedTotal += curSpeed;
-			strGPUs += " GPU" + toString(e->m_index) + ": " + formatSpeed(curSpeed);
-			++i;
-		}
-	
-		std::string strProgress;
-		std::string strTime;
-		if (m_mode.name == "reverse") {
-			// const size_t a = m_mode.steps * m_epoch + m_step;
-			// const size_t b = m_mode.steps * m_epochsTotal;
-			const float progress = 100.0 * m_step / m_mode.steps;
-			
-			const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeRunStart).count();
-			const size_t remaining = (100.0 - progress) * (seconds / progress);
-			
-			std::ostringstream strProgressBuilder;
-			strProgressBuilder << "Epoch " << (m_epoch + 1) << ": " << std::setfill(' ') << std::setw(3) << size_t(progress) << "%:";
-			strProgress = strProgressBuilder.str();
-
-			std::ostringstream strTimeBuilder;
-			strTimeBuilder << " (remaining " << remaining << ")";
-			strTime = strTimeBuilder.str();
-		}
-
-		const std::string strVT100ClearLine = "\33[2K\r";
-		std::cerr << strVT100ClearLine << strProgress << " total: " << formatSpeed(speedTotal) << " -" << strGPUs << strTime << '\r' << std::flush;
-		m_countPrint = 0;
+	// ++m_countPrint;
+	// if( m_countPrint > m_vDevices.size() ) {
+	std::string strGPUs;
+	double speedTotal = 0;
+	unsigned int i = 0;
+	for (auto & e : m_vDevices) {
+		const auto curSpeed = e->m_speed.getSpeed();
+		speedTotal += curSpeed;
+		strGPUs += " GPU" + toString(e->m_index) + ": " + formatSpeed(curSpeed);
+		++i;
 	}
+
+	std::string strProgress;
+	std::string strTime;
+	if (m_mode.name == "reverse") {
+		const float progress = 100.0 * m_stepsDone / m_stepsTotal;
+		const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeRunStart).count();
+		const size_t remaining = (100.0 - progress) * (seconds / progress);
+		
+		std::ostringstream strProgressBuilder;
+		strProgressBuilder << "Epoch " << (m_epoch + 1) << ": " << std::setfill(' ') << std::setw(3) << size_t(progress) << "%:";
+		strProgress = strProgressBuilder.str();
+
+		std::ostringstream strTimeBuilder;
+		strTimeBuilder << " (remaining " << std::setfill(' ') << std::setw(3) << remaining << ")";
+		strTime = strTimeBuilder.str();
+	}
+
+	const std::string strVT100ClearLine = "\33[2K\r";
+	std::cerr << strVT100ClearLine << strProgress << " total: " << formatSpeed(speedTotal) << " -" << strGPUs << strTime << '\r' << std::flush;
+	// m_countPrint = 0;
+	// }
 }
 
 void CL_CALLBACK Dispatcher::staticCallback(cl_event event, cl_int event_command_exec_status, void * user_data) {

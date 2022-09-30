@@ -172,10 +172,11 @@ class Dispatcher {
 		size_t m_sizeInitDone;
 		size_t m_sizeHashTableInitTotal;
 		size_t m_sizeHashTableInitDone;
+		size_t m_stepsDone;
+		size_t m_stepsTotal;
 		bool m_quit;
 		size_t m_epoch;
 		size_t m_epochsTotal;
-		size_t m_step;
 };
 
 #endif /* HPP_DISPATCHER */
