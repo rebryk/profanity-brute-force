@@ -16,7 +16,7 @@
 
 static const size_t STEPS_OFFSET = 3;
 static const size_t HASH_TABLE_SIZE = 1U << 30; // 1U << 30;
-static const size_t HASH_TABLE_SET_SIZE = 1 << 25; // 1 << 25;
+static const size_t HASH_TABLE_SET_SIZE = 1 << 26; // 1 << 25;
 static const size_t HASH_TABLE_JOB_SIZE = 1 << 18; // 1 << 18;
 static const size_t HASH_TABLE_LOAD_SIZE = 1 << 18; // 1 << 18;
 
@@ -221,7 +221,7 @@ size_t Dispatcher::getEpoch() {
 void Dispatcher::runReverse() {
 	const auto isReverse = m_mode.name == "reverse";
 
-	const int numBatches = m_mode.extended ? 64 : 128;
+	const int numBatches = m_mode.extended ? 32 : 64;
 	m_epochsTotal = numBatches / m_vDevices.size();
 
 	std::cout << "Memory limit: " << (m_mode.extended ? "16Gb" : "8Gb") << std::endl;
