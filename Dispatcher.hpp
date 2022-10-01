@@ -121,8 +121,6 @@ class Dispatcher {
 		void writeBitset(std::string& filename, cl_ulong data[], size_t size);
 		void readBitset(std::string& filename, cl_ulong data[], size_t size);
 
-		size_t getEpoch();
-
 	private:
 		void init();
 		void initBegin(Device & d);
@@ -175,8 +173,8 @@ class Dispatcher {
 		size_t m_stepsDone;
 		size_t m_stepsTotal;
 		bool m_quit;
-		size_t m_epoch;
-		size_t m_epochsTotal;
+		size_t m_batchX;
+		size_t m_batchY;
 };
 
 #endif /* HPP_DISPATCHER */

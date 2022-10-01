@@ -151,10 +151,10 @@ int main(int argc, char * * argv) {
 		bool bModeReverse = false;
 		bool bMode16Gb = false;
 		bool bModeCache = false;
-		bool bModeArtifacts = false;
 		bool bModeHashTable = false;
 		int iModeSteps = 0;
-		int iModeSkip = 0;
+		int iModeSkipX = 0;
+		int iModeSkipY = 0;
 		std::string strModeTarget;
 		std::string strModeLeading;
 		std::string strModeMatching;
@@ -196,9 +196,9 @@ int main(int argc, char * * argv) {
 		argp.addSwitch('t', "target", strModeTarget);
 		argp.addSwitch('e', "extended", bMode16Gb);
 		argp.addSwitch('C', "cache", bModeCache);
-		argp.addSwitch('a', "artifacts", bModeArtifacts);
 		argp.addSwitch('s', "steps", iModeSteps);
-		argp.addSwitch('S', "skip", iModeSkip);
+		argp.addSwitch('x', "skip-x", iModeSkipX);
+		argp.addSwitch('y', "skip-y", iModeSkipY);
 		argp.addSwitch('h', "hash-table", bModeHashTable);
 
 		if (!argp.parse()) {
@@ -250,7 +250,7 @@ int main(int argc, char * * argv) {
 				return 1;
 			}
 
-			mode = Mode::reverse(strModeTarget, iModeSteps, bMode16Gb, bModeCache, iModeSkip, bModeArtifacts);
+			mode = Mode::reverse(strModeTarget, iModeSteps, bMode16Gb, bModeCache, iModeSkipX, iModeSkipY);
 		}
 		else {
 			std::cout << g_strHelp << std::endl;
@@ -376,25 +376,12 @@ int main(int argc, char * * argv) {
 		}
 
 		std::cout << std::endl;
-
-		size_t skip = mode.skip;
-		while (true) {
-			mode.skip = skip;
-
-			Dispatcher d(clContext, clProgram, mode, worksizeMax == 0 ? inverseSize * inverseMultiple : worksizeMax, inverseSize, inverseMultiple, 0);
-			for (auto & i : vDevices) {
-				d.addDevice(i, worksizeLocal, mDeviceIndex[i]);
-			}
-
-			try {
-				d.run();
-				break;
-			} catch (std::exception& e) {
-				const size_t epoch = d.getEpoch();
-				skip = epoch == 0 ? 0 : epoch - 1;
-				std::cout << "Restarting..." << std::endl;
-			}
+		Dispatcher d(clContext, clProgram, mode, worksizeMax == 0 ? inverseSize * inverseMultiple : worksizeMax, inverseSize, inverseMultiple, 0);
+		for (auto & i : vDevices) {
+			d.addDevice(i, worksizeLocal, mDeviceIndex[i]);
 		}
+		
+		d.run();
 
 		clReleaseContext(clContext);
 		return 0;

@@ -443,22 +443,18 @@ void profanity_init_seed(__global const point * const precomp, point * const p, 
 	}
 }
 
-__kernel void profanity_init_reverse(__global const point * const precomp, __global mp_number * const pDeltaX, __global mp_number * const pPrevLambda, __global result * const pResult, point target) {
+__kernel void profanity_init_reverse(__global const point * const precomp, __global mp_number * const pDeltaX, __global mp_number * const pPrevLambda, __global result * const pResult, point target, const ulong offset) {
 	const size_t id = get_global_id(0);
 	point p;
 	
-	// s = (id << 192) * G
+	// s = ((id << 192) + offset) * G
 	point s;
 	bool bIsFirst = true;
+	profanity_init_seed(precomp, &s, &bIsFirst, 8 * 255 * 0, offset);
 	profanity_init_seed(precomp, &s, &bIsFirst, 8 * 255 * 3, id);
 
 	mp_number tmp1, tmp2;
 	point tmp3;
-
-	// Set target
-	// - seed 0, id 100
-	// mp_number x = {{0x2f2db1a, 0xd9e194cb, 0x746e306b, 0x2b8b85c9, 0xf698f066, 0xd8f98928, 0xeabe7928, 0xe19a0648}};
-	// mp_number y = {{0xe2f5f5e6, 0xdd09d9bf, 0x240039e0, 0xf0e2ec79, 0xadf05054, 0x656be078, 0x54143a9, 0xae8d9237}};
 
 	p.x = target.x;
 	p.y = target.y;

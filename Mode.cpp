@@ -63,7 +63,7 @@ static mp_number parseCoordinate(const std::string& strHex) {
 	return c;
 }
 
-Mode Mode::reverse(const std::string strPublicAddress, const int steps, const bool extented, const bool cache, const int skip, const bool artifacts) {
+Mode Mode::reverse(const std::string strPublicAddress, const int steps, const bool extented, const bool cache, const int skipX, const int skipY) {
 	Mode r;
 	r.name = "reverse";
 	r.kernel = "profanity_score_reverse";
@@ -74,8 +74,8 @@ Mode Mode::reverse(const std::string strPublicAddress, const int steps, const bo
 	r.steps = steps;
 	r.extended = extented;
 	r.cache = cache;
-	r.skip = skip;
-	r.artifacts = artifacts;
+	r.skipX = skipX;
+	r.skipY = skipY;
 
 	return r;
 }
@@ -86,8 +86,8 @@ Mode Mode::hashTable(const bool extented) {
 	r.kernel = "profanity_score_reverse";
 	r.extended = extented;
 	r.cache = false;
-	r.skip = 0;
-	r.artifacts = false;
+	r.skipX = 0;
+	r.skipY = 0;
 
 	return r;
 }
