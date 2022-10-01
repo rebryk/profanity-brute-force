@@ -103,7 +103,7 @@ class Dispatcher {
 			// HashTable Initialization
 			size_t m_iterHashTableInitialized;
 			size_t m_sizeHashTableInitialized;
-			std::unordered_map<Address, int, AddressHasher> m_addressToIndex;
+			// std::unordered_map<Address, int, AddressHasher> m_addressToIndex;
 			std::vector<Address> m_addresses;
 		};
 

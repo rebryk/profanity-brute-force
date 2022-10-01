@@ -352,8 +352,8 @@ void Dispatcher::initBegin(Device & d) {
 	d.m_iterHashTableInitialized = 0;
 	
 	// Reset the hash table
-	d.m_addressToIndex.clear();
-	d.m_addresses.reserve(m_HashTableSize);
+	// d.m_addressToIndex.clear();
+	// d.m_addressToIndex.reserve(m_HashTableSize);
 	
 	// Initialize the list with addresses
 	d.m_addresses.clear();
@@ -607,22 +607,32 @@ void Dispatcher::handleReverse(Device & d) {
 			const cl_uchar* h = r.foundHash;
 			for (size_t i = 0; i < 3; ++i) {
 				a[i] = 0;
-				a[i] |= ((1U * h[4 * (i + 2) + 3]) << 24);
-				a[i] |= ((1U * h[4 * (i + 2) + 2]) << 16);
-				a[i] |= ((1U * h[4 * (i + 2) + 1]) << 8);
-				a[i] |= ((1U * h[4 * (i + 2) + 0]) << 0);
+				a[i] |= ((1U * h[4 * i + 3]) << 24);
+				a[i] |= ((1U * h[4 * i + 2]) << 16);
+				a[i] |= ((1U * h[4 * i + 1]) << 8);
+				a[i] |= ((1U * h[4 * i + 0]) << 0);
+			}
+			
+			Device::Address key(a);
+			std::cout << std::endl << "Found candidate!" << std::endl << std::endl;
+			
+			size_t foundIndex = d.m_addresses.size();
+			for (size_t i = 0; i < d.m_addresses.size(); ++i) {
+				if (d.m_addresses[i] == key) {
+					foundIndex = i;
+					break;
+				}
 			}
 
-			Device::Address key(a);
-			auto it = d.m_addressToIndex.find(key);
-
-			if (it != d.m_addressToIndex.end()) {
+			if (foundIndex != d.m_addresses.size()) {
 				std::lock_guard<std::mutex> lock(m_mutex);
+				
 				if (m_clScoreMax != PROFANITY_MAX_SCORE) {
 					m_clScoreMax = PROFANITY_MAX_SCORE;
 					m_quit = true;
-
-					size_t seed = it->second;
+					
+					const size_t offset = d.m_batchIndex * m_HashTableSize;
+					size_t seed = foundIndex + offset;
 					cl_ulong4 rootKey = getPrivateKey(seed);
 
 					// Time delta
@@ -635,8 +645,6 @@ void Dispatcher::handleReverse(Device & d) {
 					std::cout << "Id: " << r.foundId << " Round: " << d.m_round - 2 << std::endl;
 					std::cout << strVT100ClearLine << "Time: " << std::setw(5) << seconds << " Private: 0x" << strPrivate << std::endl;
 				}
-			} else {
-				// std::cout << "Found the wrong candidate" << std::endl;
 			}
 		}
 	}
@@ -681,10 +689,10 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 					std::string filename = "cache/" + toString(d.m_batchIndex) + ".bin";
 					readAddresses(filename, d.m_addresses);
 
-					const size_t offset = d.m_batchIndex * m_HashTableSize;
-					for (size_t i = 0; i < d.m_addresses.size(); ++i) {
-						d.m_addressToIndex[d.m_addresses[i]] = offset + i;
-					}
+					// const size_t offset = d.m_batchIndex * m_HashTableSize;
+					// for (size_t i = 0; i < d.m_addresses.size(); ++i) {
+					// 	d.m_addressToIndex[d.m_addresses[i]] = offset + i;
+					// }
 				}
 
 				if (iterDone < iterTotal) {
@@ -703,7 +711,7 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 					for (size_t i = 0; i < HASH_TABLE_JOB_SIZE; ++i) {
 						Device::Address key(&d.m_memPublicAddress[3 * i]);
 						d.m_addresses[localOffset + i] = key;
-						d.m_addressToIndex[key] = globalOffset + i;
+						// d.m_addressToIndex[key] = globalOffset + i;
 					}
 				}
 
