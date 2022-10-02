@@ -24,7 +24,7 @@ class Mode {
 	public:
 		static Mode matching(const std::string strHex);
 		static Mode hashTable(const bool extended);
-		static Mode reverse(const std::string strPublicAddress, const int steps, const bool extended, const bool cache, const int skipX, const int skipY);
+		static Mode reverse(const std::string strPublicAddress, const int steps, const bool extended, const bool cache, const int skipX, const int skipY, const bool single);
 		
 		static Mode range(const cl_uchar min, const cl_uchar max);
 		static Mode leading(const char charLeading);
@@ -58,6 +58,7 @@ class Mode {
 		int skipY;
 		bool extended;
 		bool cache;
+		bool single;
 };
 
 #endif /* HPP_MODE */

@@ -277,6 +277,11 @@ void Dispatcher::runReverse() {
 				const auto timeRun = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeRunStart).count();
 				std::cout << "Search time: " << timeRun << " seconds" << std::endl;
 			}
+
+			// Break if single mode is enabled
+			if (m_mode.single) {
+				m_clScoreMax = PROFANITY_MAX_SCORE;
+			}
 		}
 	}
 }

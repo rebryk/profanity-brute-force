@@ -152,6 +152,7 @@ int main(int argc, char * * argv) {
 		bool bMode16Gb = false;
 		bool bModeCache = false;
 		bool bModeHashTable = false;
+		bool bModeSingle = false;
 		int iModeSteps = 0;
 		int iModeSkipX = 0;
 		int iModeSkipY = 0;
@@ -200,6 +201,7 @@ int main(int argc, char * * argv) {
 		argp.addSwitch('x', "skip-x", iModeSkipX);
 		argp.addSwitch('y', "skip-y", iModeSkipY);
 		argp.addSwitch('h', "hash-table", bModeHashTable);
+		argp.addSwitch('S', "single", bModeSingle);
 
 		if (!argp.parse()) {
 			std::cout << "error: bad arguments, try again :<" << std::endl;
@@ -250,7 +252,7 @@ int main(int argc, char * * argv) {
 				return 1;
 			}
 
-			mode = Mode::reverse(strModeTarget, iModeSteps, bMode16Gb, bModeCache, iModeSkipX, iModeSkipY);
+			mode = Mode::reverse(strModeTarget, iModeSteps, bMode16Gb, bModeCache, iModeSkipX, iModeSkipY, bModeSingle);
 		}
 		else {
 			std::cout << g_strHelp << std::endl;
