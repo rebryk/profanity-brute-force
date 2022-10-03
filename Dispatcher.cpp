@@ -15,7 +15,6 @@
 #include "precomp.hpp"
 
 static const size_t STEPS_OFFSET = 3;
-static const size_t BATCH_X_SIZE = 2000; // num steps per batch
 static const size_t HASH_TABLE_SIZE = 1U << 30; // 1U << 30;
 static const size_t HASH_TABLE_SET_SIZE = 1 << 25; // 1 << 25;
 static const size_t HASH_TABLE_JOB_SIZE = 1 << 18; // 1 << 18;
@@ -218,23 +217,15 @@ void printTargetAddress(const point& target) {
 void Dispatcher::runReverse() {
 	const auto isReverse = m_mode.name == "reverse";
 
-	const size_t m_batchXTotal = isReverse ? ((m_mode.steps + BATCH_X_SIZE - 1) / BATCH_X_SIZE) : 1;
-
 	const int nJobs = m_mode.extended ? 64 : 128;
 	const size_t m_batchYTotal = nJobs / m_vDevices.size();
 
 	std::cout << "Memory limit: " << (m_mode.extended ? "16Gb" : "8Gb") << std::endl;
-	std::cout << "Number of batches: " << m_batchXTotal * m_batchYTotal << std::endl;
-	std::cout << "Number of X batches: " << m_batchXTotal << std::endl;
-	std::cout << "Number of Y batches: " << m_batchYTotal << std::endl;
+	std::cout << "Number of batches: " << m_batchYTotal << std::endl;
 
 	if (isReverse) {
 		std::cout << "Number of steps: " << m_mode.steps << std::endl;
 		printTargetAddress(m_mode.targetAddress);
-	}
-
-	if (m_mode.skipX) {
-		std::cout << "Skip x: " << m_mode.skipX << " batches" << std::endl;
 	}
 
 	if (m_mode.skipY) {
@@ -242,46 +233,44 @@ void Dispatcher::runReverse() {
 	}
 
 	timeStart = std::chrono::steady_clock::now();
-	for (m_batchX = m_mode.skipX; m_batchX < m_batchXTotal && m_clScoreMax != PROFANITY_MAX_SCORE; ++m_batchX) {
-		for (m_batchY = (m_batchX == m_mode.skipX ? m_mode.skipY : 0); m_batchY < m_batchYTotal && m_clScoreMax != PROFANITY_MAX_SCORE; ++m_batchY) {
-			m_quit = false;
-			m_countRunning = m_vDevices.size();
-			for (size_t i = 0; i < m_countRunning; i++) {
-				m_vDevices[i]->m_batchIndex = m_batchY * m_countRunning + i;
-			}
+	for (m_batchY = m_mode.skipY; m_batchY < m_batchYTotal && m_clScoreMax != PROFANITY_MAX_SCORE; ++m_batchY) {
+		m_quit = false;
+		m_countRunning = m_vDevices.size();
+		for (size_t i = 0; i < m_countRunning; i++) {
+			m_vDevices[i]->m_batchIndex = m_batchY * m_countRunning + i;
+		}
 
-			std::cout << "Run batch x=" << m_batchX + 1 << " y=" << m_batchY + 1 << "..." << std::endl;
-			std::cout << "Run initialization..." << std::endl;
-			timeInitStart = std::chrono::steady_clock::now();
-			init();
-			const auto timeInitialization = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeInitStart).count();
-			std::cout << "Initialization time: " << timeInitialization << " seconds" << std::endl;
-			
-			if (!isReverse) {
-				continue;
-			}
+		std::cout << "Run batch " << m_batchY + 1 << "..." << std::endl;
+		std::cout << "Run initialization..." << std::endl;
+		timeInitStart = std::chrono::steady_clock::now();
+		init();
+		const auto timeInitialization = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeInitStart).count();
+		std::cout << "Initialization time: " << timeInitialization << " seconds" << std::endl;
+		
+		if (!isReverse) {
+			continue;
+		}
 
-			std::cout << "Run search..." << std::endl;
-			timeRunStart = std::chrono::steady_clock::now();
-			m_eventFinished = clCreateUserEvent(m_clContext, NULL);
+		std::cout << "Run search..." << std::endl;
+		timeRunStart = std::chrono::steady_clock::now();
+		m_eventFinished = clCreateUserEvent(m_clContext, NULL);
 
-			for (auto it = m_vDevices.begin(); it != m_vDevices.end(); ++it) {
-				dispatch(*(*it));
-			}
+		for (auto it = m_vDevices.begin(); it != m_vDevices.end(); ++it) {
+			dispatch(*(*it));
+		}
 
-			clWaitForEvents(1, &m_eventFinished);
-			clReleaseEvent(m_eventFinished);
-			m_eventFinished = NULL;
+		clWaitForEvents(1, &m_eventFinished);
+		clReleaseEvent(m_eventFinished);
+		m_eventFinished = NULL;
 
-			if (!m_quit) {
-				const auto timeRun = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeRunStart).count();
-				std::cout << "Search time: " << timeRun << " seconds" << std::endl;
-			}
+		if (!m_quit) {
+			const auto timeRun = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeRunStart).count();
+			std::cout << "Search time: " << timeRun << " seconds" << std::endl;
+		}
 
-			// Break if single mode is enabled
-			if (m_mode.single) {
-				m_clScoreMax = PROFANITY_MAX_SCORE;
-			}
+		// Break if single mode is enabled
+		if (m_mode.single) {
+			break;
 		}
 	}
 }
@@ -337,7 +326,7 @@ void Dispatcher::init() {
 	m_sizeHashTableInitTotal = m_HashTableSize * deviceCount;
 	m_sizeHashTableInitDone = 0;
 
-	m_stepsTotal = BATCH_X_SIZE * deviceCount;
+	m_stepsTotal = m_mode.steps * deviceCount;
 	m_stepsDone = 0;
 
 	cl_event * const pInitEvents = new cl_event[deviceCount];
@@ -392,7 +381,7 @@ void Dispatcher::initBegin(Device & d) {
 
 	if (m_mode.name == "reverse") {
 		CLMemory<point>::setKernelArg(d.m_kernelInit, 4, m_mode.targetAddress);
-		CLMemory<cl_ulong>::setKernelArg(d.m_kernelInit, 5, BATCH_X_SIZE * m_batchX);
+		CLMemory<cl_ulong>::setKernelArg(d.m_kernelInit, 5, 0);
 	} else {
 		CLMemory<cl_ulong4>::setKernelArg(d.m_kernelInit, 4, d.m_clSeed);
 	}
@@ -653,11 +642,11 @@ void Dispatcher::handleReverse(Device & d) {
 					// Time delta
 					const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeStart).count();
 					// Format private key
-					cl_ulong4 privateKey = restorePrivateKey(rootKey, r.foundId, BATCH_X_SIZE * m_batchX + d.m_round - 2);
+					cl_ulong4 privateKey = restorePrivateKey(rootKey, r.foundId, d.m_round - 2);
 					const std::string strPrivate = privateKeyToStr(privateKey);
 					// Print
 					const std::string strVT100ClearLine = "\33[2K\r";
-					std::cout << "Id: " << r.foundId << " Round: " << BATCH_X_SIZE * m_batchX + d.m_round - 2 << std::endl;
+					std::cout << "Id: " << r.foundId << " Round: " << d.m_round - 2 << std::endl;
 					std::cout << strVT100ClearLine << "Time: " << std::setw(5) << seconds << " Private: 0x" << strPrivate << std::endl;
 				}
 			}
@@ -775,7 +764,7 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 		bool bDispatch = true;
 		{
 			std::lock_guard<std::mutex> lock(m_mutex);
-			if (m_quit || d.m_round == BATCH_X_SIZE + STEPS_OFFSET) {
+			if (m_quit || d.m_round == m_mode.steps + STEPS_OFFSET) {
 				bDispatch = false;
 				if(--m_countRunning == 0) {
 					clSetUserEventStatus(m_eventFinished, CL_COMPLETE);
@@ -811,7 +800,7 @@ void Dispatcher::printSpeed() {
 		const size_t remaining = (100.0 - progress) * (seconds / progress);
 		
 		std::ostringstream strProgressBuilder;
-		strProgressBuilder << "Batch x=" << m_batchX + 1 << " y=" << m_batchY + 1 << ": " << std::setfill(' ') << std::setw(3) << size_t(progress) << "%:";
+		strProgressBuilder << "Batch " << m_batchY + 1 << ": " << std::setfill(' ') << std::setw(3) << size_t(progress) << "%:";
 		strProgress = strProgressBuilder.str();
 
 		std::ostringstream strTimeBuilder;

@@ -173,7 +173,7 @@ class Dispatcher {
 		size_t m_stepsDone;
 		size_t m_stepsTotal;
 		bool m_quit;
-		size_t m_batchX;
+		// size_t m_batchX;
 		size_t m_batchY;
 };
 
