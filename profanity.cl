@@ -535,7 +535,7 @@ __kernel void profanity_init(__global const point * const precomp, __global mp_n
 	}
 }
 
-__kernel void profanity_init_hash_table(__global const point * const precomp, __global ulong4 * const seed, __global ulong * bitset, __global uint * publicAddress) {
+__kernel void profanity_init_hash_table(__global const point * const precomp, __global ulong4 * const seed, __global uint * bitset, __global uint * publicAddress) {
 	const size_t id = get_global_id(0);
 	const size_t offset = get_global_offset(0);
 	
@@ -554,10 +554,60 @@ __kernel void profanity_init_hash_table(__global const point * const precomp, __
 	publicAddress[3 * index + 2] = p.x.d[2];
 }
 
-__kernel void profanity_init_hash_table_from_bytes(__global const ulong * bytes, __global ulong * bitset) {
+void add_element(const uint k1, const uint k2, const uint k3, __global uint * bitset) {
+	const size_t M = 1UL << 30;
+	size_t i = k3 % M;
+	
+	while (true) {
+		const uint old = atomic_cmpxchg(&bitset[2 * i + 0], 0, k1);
+		if (old == 0) {
+			bitset[2 * i + 1] = k2;
+			break;
+		} else {
+			++i;
+			if (i == M) {
+				i = 0;
+			}
+		}
+	}
+}
+
+bool find_element(const uint k1, const uint k2, const uint k3, __global uint * bitset) {
+	const size_t M = 1UL << 30;
+	size_t i = k3 % M;
+
+	while (true) {
+		if (bitset[2 * i + 0] == 0) {
+			return false;
+		}
+
+		if (bitset[2 * i + 0] == k1 && bitset[2 * i + 1] == k2) {
+			return true;
+		}
+
+		++i;
+		if (i == M) {
+			i = 0;
+		}
+	}
+}
+
+__kernel void profanity_clear_hash_table(__global uint * bitset) {
+	const size_t id = get_global_id(0);
+	bitset[2 * id + 0] = 0;
+	bitset[2 * id + 1] = 0;
+}
+
+__kernel void profanity_init_hash_table_from_bytes(__global const uint * bytes, __global uint * bitset) {
 	const size_t id = get_global_id(0);
 	const size_t offset = get_global_offset(0);
-	bitset[id] = bytes[id - offset];
+	const size_t index = id - offset;
+
+	const uint k1 = bytes[3 * index + 0];
+	const uint k2 = bytes[3 * index + 1];
+	const uint k3 = bytes[3 * index + 2];
+
+	add_element(k1, k2, k3, bitset);
 }
 
 __kernel void profanity_inverse_reverse(__global const mp_number * const pDeltaX, __global mp_number * const pInverse) {
@@ -1019,31 +1069,16 @@ __kernel void profanity_score_doubles(__global mp_number * const pInverse, __glo
 	profanity_result_update(id, hash, pResult, score, scoreMax);
 }
 
-__kernel void profanity_score_reverse(__global mp_number * const pInverse, __global result * const pResult, __constant const uchar * const data1, __constant const uchar * const data2, const uchar scoreMax, __global ulong * bitset, const uchar ext) {
+__kernel void profanity_score_reverse(__global mp_number * const pInverse, __global result * const pResult, __constant const uchar * const data1, __constant const uchar * const data2, const uchar scoreMax, __global uint * bitset, const uchar ext) {
 	const size_t id = get_global_id(0);
 	// hash will have an invalid value
 	__global const uchar * const hash = pInverse[id].d;
 
-	ulong key = pInverse[id].d[1];
-	key = (key << 32) | pInverse[id].d[0];
+	const uint k1 = pInverse[id].d[0];
+	const uint k2 = pInverse[id].d[1];
+	const uint k3 = pInverse[id].d[2];
 
-	uint M = ext ? (1 << 31) : (1 << 30);
-
-	uint m;
-	uint l = 0;
-	uint r = M;
-
-	while (l + 1 < r) {
-		m = l + (r - l) / 2;
-	
-		if (bitset[m] < key) {
-			l = m;
-		} else {
-			r = m;
-		}
-	}
-	
-	if (bitset[l] == key || (r < M && bitset[r] == key)) {
+	if (find_element(k1, k2, k3, bitset)) {
 		profanity_result_update(id, hash, pResult, (id % PROFANITY_MAX_SCORE) + 1, scoreMax);
 	}
 }

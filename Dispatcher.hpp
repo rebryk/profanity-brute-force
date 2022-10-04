@@ -23,7 +23,7 @@
 #define PROFANITY_SPEEDSAMPLES 20
 #define PROFANITY_MAX_SCORE 40
 
-typedef std::pair<unsigned long long, unsigned int> addr;
+typedef std::pair<std::pair<unsigned int, unsigned int>, unsigned int> addr;
 
 class Dispatcher {
 	private:
@@ -53,6 +53,7 @@ class Dispatcher {
 			cl_command_queue m_clQueue;
 
 			cl_kernel m_kernelInit;
+			cl_kernel m_kernelClearHashTable;
 			cl_kernel m_kernelInitHashTable;
 			cl_kernel m_kernelInverse;
 			cl_kernel m_kernelIterate;
@@ -66,9 +67,9 @@ class Dispatcher {
 			CLMemory<mp_number> m_memPrevLambda;
 			CLMemory<result> m_memResult;
 			CLMemory<cl_ulong4> m_memSeed;
-			CLMemory<cl_ulong> m_memHashTable;
+			CLMemory<cl_uint> m_memHashTable;
 			CLMemory<cl_uint> m_memPublicAddress;
-			CLMemory<cl_ulong> m_memPublicBytes;
+			CLMemory<cl_uint> m_memPublicBytes;
 
 			// Data parameters used in some modes
 			const Mode& m_mode;
@@ -89,9 +90,10 @@ class Dispatcher {
 			cl_event m_eventFinished;
 
 			// HashTable Initialization
+			size_t m_sizeHashTableCleared;
 			size_t m_iterHashTableInitialized;
 			size_t m_sizeHashTableInitialized;
-			std::vector<std::pair<addr, unsigned int>> m_addresses;
+			std::vector<addr> m_addresses;
 		};
 
 	public:
@@ -102,8 +104,8 @@ class Dispatcher {
 		void run();
 		void runReverse();
 
-		void writeAddresses(std::string& filename, std::vector<std::pair<addr, unsigned int>>& addresses);
-		void readAddresses(std::string& filename, std::vector<std::pair<addr, unsigned int>>& addresses);
+		void writeAddresses(std::string& filename, std::vector<addr>& addresses);
+		void readAddresses(std::string& filename, std::vector<addr>& addresses);
 
 	private:
 		void init();
