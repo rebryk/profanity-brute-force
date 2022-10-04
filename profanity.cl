@@ -535,16 +535,7 @@ __kernel void profanity_init(__global const point * const precomp, __global mp_n
 	}
 }
 
-void set_bit(const uint a, const uint b, const uint c, __global uint * bitset, const uchar ext) {
-	// k has 30 bits (or 31 in extended mode)
-	const uint k = (c >> (ext > 0 ? 1 : 2)) << 1;
-	const uint old = atomic_cmpxchg(&bitset[k], 0, b);
-	if (old == 0) {
-		bitset[k + 1] = a;
-	}
-}
-
-__kernel void profanity_init_hash_table(__global const point * const precomp, __global ulong4 * const seed, __global uint * bitset, __global uint * publicAddress, const uchar ext) {
+__kernel void profanity_init_hash_table(__global const point * const precomp, __global ulong4 * const seed, __global ulong * bitset, __global uint * publicAddress) {
 	const size_t id = get_global_id(0);
 	const size_t offset = get_global_offset(0);
 	
@@ -558,42 +549,15 @@ __kernel void profanity_init_hash_table(__global const point * const precomp, __
 	profanity_init_seed(precomp, &p, &bIsFirst, 8 * 255 * 2, seed_.z);
 	profanity_init_seed(precomp, &p, &bIsFirst, 8 * 255 * 3, seed_.w);
 
-	// ethhash h = { { 0 } };
-
-	// Initialize Keccak structure with point coordinates in big endian
-	// h.d[0] = bswap32(p.x.d[MP_WORDS - 1]);
-	// h.d[1] = bswap32(p.x.d[MP_WORDS - 2]);
-	// h.d[2] = bswap32(p.x.d[MP_WORDS - 3]);
-	// h.d[3] = bswap32(p.x.d[MP_WORDS - 4]);
-	// h.d[4] = bswap32(p.x.d[MP_WORDS - 5]);
-	// h.d[5] = bswap32(p.x.d[MP_WORDS - 6]);
-	// h.d[6] = bswap32(p.x.d[MP_WORDS - 7]);
-	// h.d[7] = bswap32(p.x.d[MP_WORDS - 8]);
-	// h.d[8] = bswap32(p.y.d[MP_WORDS - 1]);
-	// h.d[9] = bswap32(p.y.d[MP_WORDS - 2]);
-	// h.d[10] = bswap32(p.y.d[MP_WORDS - 3]);
-	// h.d[11] = bswap32(p.y.d[MP_WORDS - 4]);
-	// h.d[12] = bswap32(p.y.d[MP_WORDS - 5]);
-	// h.d[13] = bswap32(p.y.d[MP_WORDS - 6]);
-	// h.d[14] = bswap32(p.y.d[MP_WORDS - 7]);
-	// h.d[15] = bswap32(p.y.d[MP_WORDS - 8]);
-	// h.d[16] ^= 0x01; // length 64
-
-	// sha3_keccakf(&h);
-	
-	const uint j = 3 * index;
-	publicAddress[j + 0] = p.x.d[0];
-	publicAddress[j + 1] = p.x.d[1];
-	publicAddress[j + 2] = p.x.d[2];
-
-	set_bit(p.x.d[2], p.x.d[1], p.x.d[0], bitset, ext);	
+	publicAddress[3 * index + 0] = p.x.d[0];
+	publicAddress[3 * index + 1] = p.x.d[1];
+	publicAddress[3 * index + 2] = p.x.d[2];
 }
 
-__kernel void profanity_init_hash_table_from_bytes(__global const uint * bytes, __global uint * bitset, const uchar ext) {
+__kernel void profanity_init_hash_table_from_bytes(__global const ulong * bytes, __global ulong * bitset) {
 	const size_t id = get_global_id(0);
 	const size_t offset = get_global_offset(0);
-	const uint index = 3 * (id - offset);
-	set_bit(bytes[index + 2], bytes[index + 1], bytes[index + 0], bitset, ext);
+	bitset[id] = bytes[id - offset];
 }
 
 __kernel void profanity_inverse_reverse(__global const mp_number * const pDeltaX, __global mp_number * const pInverse) {
@@ -861,33 +825,10 @@ __kernel void profanity_iterate_reverse(__global mp_number * const pDeltaX, __gl
 	// Restore X coordinate from delta value
 	mp_mod_sub(&dX, &dX, &negativeGx);
 
-	// Initialize Keccak structure with point coordinates in big endian
-	// h.d[0] = bswap32(dX.d[MP_WORDS - 1]);
-	// h.d[1] = bswap32(dX.d[MP_WORDS - 2]);
-	// h.d[2] = bswap32(dX.d[MP_WORDS - 3]);
-	// h.d[3] = bswap32(dX.d[MP_WORDS - 4]);
-	// h.d[4] = bswap32(dX.d[MP_WORDS - 5]);
-	// h.d[5] = bswap32(dX.d[MP_WORDS - 6]);
-	// h.d[6] = bswap32(dX.d[MP_WORDS - 7]);
-	// h.d[7] = bswap32(dX.d[MP_WORDS - 8]);
-	// h.d[8] = bswap32(tmp.d[MP_WORDS - 1]);
-	// h.d[9] = bswap32(tmp.d[MP_WORDS - 2]);
-	// h.d[10] = bswap32(tmp.d[MP_WORDS - 3]);
-	// h.d[11] = bswap32(tmp.d[MP_WORDS - 4]);
-	// h.d[12] = bswap32(tmp.d[MP_WORDS - 5]);
-	// h.d[13] = bswap32(tmp.d[MP_WORDS - 6]);
-	// h.d[14] = bswap32(tmp.d[MP_WORDS - 7]);
-	// h.d[15] = bswap32(tmp.d[MP_WORDS - 8]);
-	// h.d[16] ^= 0x01; // length 64
-
-	// sha3_keccakf(&h);
-
 	// Save public address hash in pInverse, only used as interim storage until next cycle
 	pInverse[id].d[0] = dX.d[0];
 	pInverse[id].d[1] = dX.d[1];
 	pInverse[id].d[2] = dX.d[2];
-	// pInverse[id].d[3] = dX.d[6];
-	// pInverse[id].d[4] = dX.d[7];
 }
 
 __kernel void profanity_clear_results(__global result * const pResult) {
@@ -1078,14 +1019,31 @@ __kernel void profanity_score_doubles(__global mp_number * const pInverse, __glo
 	profanity_result_update(id, hash, pResult, score, scoreMax);
 }
 
-__kernel void profanity_score_reverse(__global mp_number * const pInverse, __global result * const pResult, __constant const uchar * const data1, __constant const uchar * const data2, const uchar scoreMax, __global uint * bitset, const uchar ext) {
+__kernel void profanity_score_reverse(__global mp_number * const pInverse, __global result * const pResult, __constant const uchar * const data1, __constant const uchar * const data2, const uchar scoreMax, __global ulong * bitset, const uchar ext) {
 	const size_t id = get_global_id(0);
 	// hash will have an invalid value
 	__global const uchar * const hash = pInverse[id].d;
+
+	ulong key = pInverse[id].d[1];
+	key = (key << 32) | pInverse[id].d[0];
+
+	uint M = ext ? (1 << 31) : (1 << 30);
+
+	uint m;
+	uint l = 0;
+	uint r = M;
+
+	while (l + 1 < r) {
+		m = l + (r - l) / 2;
 	
-	// k has 30 bits (or 31 in extended mode)
-	const uint k = (pInverse[id].d[0] >> (ext > 0 ? 1 : 2)) << 1;
-	if (bitset[k] == pInverse[id].d[1] && bitset[k + 1] == pInverse[id].d[2]) {
+		if (bitset[m] < key) {
+			l = m;
+		} else {
+			r = m;
+		}
+	}
+	
+	if (bitset[l] == key || (r < M && bitset[r] == key)) {
 		profanity_result_update(id, hash, pResult, (id % PROFANITY_MAX_SCORE) + 1, scoreMax);
 	}
 }

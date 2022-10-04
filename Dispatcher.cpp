@@ -16,7 +16,7 @@
 
 static const size_t STEPS_OFFSET = 3;
 static const size_t HASH_TABLE_SIZE = 1U << 30; // 1U << 30;
-static const size_t HASH_TABLE_SET_SIZE = 1 << 25; // 1 << 25;
+static const size_t HASH_TABLE_SET_SIZE = 1 << 30; // 1U << 30;
 static const size_t HASH_TABLE_JOB_SIZE = 1 << 18; // 1 << 18;
 static const size_t HASH_TABLE_LOAD_SIZE = 1 << 18; // 1 << 18;
 
@@ -158,10 +158,10 @@ Dispatcher::Device::Device(Dispatcher & parent, cl_context & clContext, cl_progr
 	m_memResult(clContext, m_clQueue, CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY, PROFANITY_MAX_SCORE + 1),
 	m_memData1(clContext, m_clQueue, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, 20),
 	m_memData2(clContext, m_clQueue, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, 20),
-	m_memHashTable(clContext,  m_clQueue, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, 2 * HASH_TABLE_SIZE * (mode.extended ? 2 : 1), !(mode.name == "reverse" || mode.name == "hashTable")),
-	m_memSeed(clContext, m_clQueue, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, HASH_TABLE_JOB_SIZE, !((mode.name == "reverse" && !mode.cache) || mode.name == "hashTable")),
+	m_memHashTable(clContext,  m_clQueue, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, HASH_TABLE_SIZE * (mode.extended ? 2 : 1), !(mode.name == "reverse")),
+	m_memSeed(clContext, m_clQueue, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, HASH_TABLE_JOB_SIZE, !(mode.name == "hashTable")),
 	m_memPublicAddress(clContext, m_clQueue, CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY, 3 * HASH_TABLE_JOB_SIZE, !(mode.name == "reverse" || mode.name == "hashTable")),
-	m_memPublicBytes(clContext, m_clQueue, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, 3 * HASH_TABLE_LOAD_SIZE, !(mode.name == "reverse" && mode.cache)),
+	m_memPublicBytes(clContext, m_clQueue, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, HASH_TABLE_LOAD_SIZE, !(mode.name == "reverse" && mode.cache)),
 	m_clSeed(createSeed()),
 	m_round(0),
 	m_speed(PROFANITY_SPEEDSAMPLES),
@@ -217,7 +217,7 @@ void printTargetAddress(const point& target) {
 void Dispatcher::runReverse() {
 	const auto isReverse = m_mode.name == "reverse";
 
-	const int nJobs = m_mode.extended ? 64 : 128;
+	const int nJobs = m_mode.extended ? 2 : 4;
 	const size_t m_batchYTotal = nJobs / m_vDevices.size();
 
 	std::cout << "Memory limit: " << (m_mode.extended ? "16Gb" : "8Gb") << std::endl;
@@ -381,7 +381,7 @@ void Dispatcher::initBegin(Device & d) {
 
 	if (m_mode.name == "reverse") {
 		CLMemory<point>::setKernelArg(d.m_kernelInit, 4, m_mode.targetAddress);
-		CLMemory<cl_ulong>::setKernelArg(d.m_kernelInit, 5, 0);
+		CLMemory<cl_ulong>::setKernelArg(d.m_kernelInit, 5, m_mode.skipX);
 	} else {
 		CLMemory<cl_ulong4>::setKernelArg(d.m_kernelInit, 4, d.m_clSeed);
 	}
@@ -390,13 +390,11 @@ void Dispatcher::initBegin(Device & d) {
 	if (m_mode.cache) {
 		d.m_memPublicBytes.setKernelArg(d.m_kernelInitHashTable, 0);
 		d.m_memHashTable.setKernelArg(d.m_kernelInitHashTable, 1);
-		CLMemory<cl_uchar>::setKernelArg(d.m_kernelInitHashTable, 2, m_mode.extended);
 	} else {
 		d.m_memPrecomp.setKernelArg(d.m_kernelInitHashTable, 0);
 		d.m_memSeed.setKernelArg(d.m_kernelInitHashTable, 1);
 		d.m_memHashTable.setKernelArg(d.m_kernelInitHashTable, 2);
 		d.m_memPublicAddress.setKernelArg(d.m_kernelInitHashTable, 3);
-		CLMemory<cl_uchar>::setKernelArg(d.m_kernelInitHashTable, 4, m_mode.extended);
 	}
 
 	// Kernel arguments - profanity_inverse
@@ -446,35 +444,6 @@ cl_ulong4 getPrivateKey(size_t seed) {
 	r.s[2] = distr(eng);
 	r.s[3] = distr(eng);
 	return r;
-}
-
-Dispatcher::Device::Address::Address(): c(0), d(0), e(0) {}
-
-Dispatcher::Device::Address::Address(uint c, uint d, uint e): c(c), d(d), e(e) {}
-
-Dispatcher::Device::Address::Address(uint x[]): c(x[0]), d(x[1]), e(x[2]) {}
-
-bool Dispatcher::Device::Address::operator <(const Address& x) const {
-	return (c < x.c) || (c == x.c && d < x.d) || (c == x.c && d == x.d && e < x.e);
-}
-
-bool Dispatcher::Device::Address::operator==(const Address &other) const {
-	return c == other.c && d == other.d && e == other.e;	
-}
-
-template <class T>
-inline void hash_combine(std::size_t& seed, const T& v)
-{
-    std::hash<T> hasher;
-    seed ^= hasher(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-}
-
-std::size_t Dispatcher::Device::AddressHasher::operator()(const Address& x) const {
-	size_t seed = 0;
-	hash_combine(seed, x.c);
-	hash_combine(seed, x.d);
-	hash_combine(seed, x.e);
-	return seed;
 }
 
 void Dispatcher::initHashTableContinue(Device & d) {
@@ -616,38 +585,38 @@ void Dispatcher::handleReverse(Device & d) {
 				a[i] |= ((1U * h[4 * i + 1]) << 8);
 				a[i] |= ((1U * h[4 * i + 0]) << 0);
 			}
+
+			unsigned long long key1 = a[1];
+			key1 = (key1 << 32) | a[0];
+			unsigned int key2 = a[2];
 			
-			Device::Address key(a);
 			std::cout << std::endl << "Found candidate!" << std::endl << std::endl;
 			
-			size_t foundIndex = d.m_addresses.size();
-			for (size_t i = 0; i < d.m_addresses.size(); ++i) {
-				if (d.m_addresses[i] == key) {
-					foundIndex = i;
-					break;
-				}
-			}
-
-			if (foundIndex != d.m_addresses.size()) {
-				std::lock_guard<std::mutex> lock(m_mutex);
-				
-				if (m_clScoreMax != PROFANITY_MAX_SCORE) {
-					m_clScoreMax = PROFANITY_MAX_SCORE;
-					m_quit = true;
+			std::pair<addr, unsigned int> find = {{key1, key2}, 0};
+			size_t foundIndex = std::lower_bound(d.m_addresses.begin(), d.m_addresses.end(), find) - d.m_addresses.begin();
+			if (foundIndex < d.m_addresses.size()) {
+				if (d.m_addresses[foundIndex].first.first == key1 && d.m_addresses[foundIndex].first.second == key2) {
+					foundIndex = d.m_addresses[foundIndex].second;
 					
-					const size_t offset = d.m_batchIndex * m_HashTableSize;
-					size_t seed = foundIndex + offset;
-					cl_ulong4 rootKey = getPrivateKey(seed);
+					std::lock_guard<std::mutex> lock(m_mutex);
+					if (m_clScoreMax != PROFANITY_MAX_SCORE) {
+						m_clScoreMax = PROFANITY_MAX_SCORE;
+						m_quit = true;
+						
+						const size_t offset = d.m_batchIndex * m_HashTableSize;
+						size_t seed = foundIndex + offset;
+						cl_ulong4 rootKey = getPrivateKey(seed);
 
-					// Time delta
-					const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeStart).count();
-					// Format private key
-					cl_ulong4 privateKey = restorePrivateKey(rootKey, r.foundId, d.m_round - 2);
-					const std::string strPrivate = privateKeyToStr(privateKey);
-					// Print
-					const std::string strVT100ClearLine = "\33[2K\r";
-					std::cout << "Id: " << r.foundId << " Round: " << d.m_round - 2 << std::endl;
-					std::cout << strVT100ClearLine << "Time: " << std::setw(5) << seconds << " Private: 0x" << strPrivate << std::endl;
+						// Time delta
+						const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeStart).count();
+						// Format private key
+						cl_ulong4 privateKey = restorePrivateKey(rootKey, r.foundId, m_mode.skipX + d.m_round - 2);
+						const std::string strPrivate = privateKeyToStr(privateKey);
+						// Print
+						const std::string strVT100ClearLine = "\33[2K\r";
+						std::cout << "Id: " << r.foundId << " Round: " << m_mode.skipX + d.m_round - 2 << std::endl;
+						std::cout << strVT100ClearLine << "Time: " << std::setw(5) << seconds << " Private: 0x" << strPrivate << std::endl;
+					}
 				}
 			}
 		}
@@ -692,30 +661,24 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 				if (d.m_iterHashTableInitialized == 0) {
 					std::string filename = "cache/" + toString(d.m_batchIndex) + ".bin";
 					readAddresses(filename, d.m_addresses);
-
-					// const size_t offset = d.m_batchIndex * m_HashTableSize;
-					// for (size_t i = 0; i < d.m_addresses.size(); ++i) {
-					// 	d.m_addressToIndex[d.m_addresses[i]] = offset + i;
-					// }
 				}
 
 				if (iterDone < iterTotal) {
 					const size_t offset = iterDone * HASH_TABLE_LOAD_SIZE;
 					for (size_t i = 0; i < HASH_TABLE_LOAD_SIZE; ++i) {
-						d.m_memPublicBytes[3 * i + 0] = d.m_addresses[offset + i].c;
-						d.m_memPublicBytes[3 * i + 1] = d.m_addresses[offset + i].d;
-						d.m_memPublicBytes[3 * i + 2] = d.m_addresses[offset + i].e;
+						d.m_memPublicBytes[i] = d.m_addresses[offset + i].first.first;
 					}
 				}
 			} else {
+				assert(m_mode.name == "hashTable");
+
 				if (d.m_iterHashTableInitialized > 1) {
 					const size_t localOffset = (d.m_iterHashTableInitialized - 2) * HASH_TABLE_JOB_SIZE;
-					const size_t globalOffset = d.m_batchIndex * m_HashTableSize + localOffset;
-
 					for (size_t i = 0; i < HASH_TABLE_JOB_SIZE; ++i) {
-						Device::Address key(&d.m_memPublicAddress[3 * i]);
-						d.m_addresses[localOffset + i] = key;
-						// d.m_addressToIndex[key] = globalOffset + i;
+						unsigned long long key1 = d.m_memPublicAddress[3 * i + 1];
+						key1 = (key1 << 32) | d.m_memPublicAddress[3 * i + 0];
+						unsigned int key2 = d.m_memPublicAddress[3 * i + 2];
+						d.m_addresses[localOffset + i] = {{key1, key2}, localOffset + i};
 					}
 				}
 
@@ -732,6 +695,9 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 				initHashTableContinue(d);
 			} else {
 				if (m_mode.name == "hashTable") {
+					std::cout << "Sorting addresses..." << std::endl;
+					std::sort(d.m_addresses.begin(), d.m_addresses.end());
+
 					std::string filename = "cache/" + toString(d.m_batchIndex) + ".bin";
 					writeAddresses(filename, d.m_addresses);
 					clSetUserEventStatus(d.m_eventFinished, CL_COMPLETE);
@@ -754,6 +720,15 @@ void Dispatcher::onEvent(cl_event event, cl_int status, Device & d) {
 				printSpeed();
 			}
 		}
+
+		// d.m_memInversedNegativeDoubleGy.read(true);
+		// for (size_t i = 0; i < 10; ++i) {
+		// 	unsigned long long key = d.m_memInversedNegativeDoubleGy[i].d[1];
+		// 	key = (key << 32) | d.m_memInversedNegativeDoubleGy[i].d[0];
+		// 	unsigned int l = d.m_memInversedNegativeDoubleGy[i].d[2];
+		// 	unsigned int r = d.m_memInversedNegativeDoubleGy[i].d[3];
+		// 	std::cout << key << " " << l << " " << r << std::endl;
+		// }
 
 		if (m_mode.name == "reverse") {
 			handleReverse(d);
@@ -834,30 +809,28 @@ std::string Dispatcher::formatSpeed(double f) {
 	return ss.str();
 }
 
-void Dispatcher::writeAddresses(std::string& filename, std::vector<Device::Address>& addresses) {
+void Dispatcher::writeAddresses(std::string& filename, std::vector<std::pair<addr, unsigned int>>& addresses) {
 	std::ofstream file;
     file.open(filename, std::ios::binary | std::ios::out);
 
 	for (auto const& address : addresses) {
-		file.write((char*)(&address.c), sizeof(uint));
-		file.write((char*)(&address.d), sizeof(uint));
-		file.write((char*)(&address.e), sizeof(uint));
+		file.write((char*)(&address.first.first), sizeof(unsigned long long));
+		file.write((char*)(&address.first.second), sizeof(unsigned int));
+		file.write((char*)(&address.second), sizeof(unsigned int));
 	}
 
 	file.close();
 }
 
-void Dispatcher::readAddresses(std::string& filename, std::vector<Device::Address>& addresses) {
+void Dispatcher::readAddresses(std::string& filename, std::vector<std::pair<addr, unsigned int>>& addresses) {
 	std::ifstream file;
     file.open(filename, std::ios::binary | std::ios::in);
 	
-	Device::Address key;
 	addresses.resize(m_HashTableSize);
 	for (size_t i = 0; i < m_HashTableSize; ++i) {
-		file.read((char*)(&key.c), sizeof(uint));
-		file.read((char*)(&key.d), sizeof(uint));
-		file.read((char*)(&key.e), sizeof(uint));
-		addresses[i] = key;
+		file.read((char*)(&addresses[i].first.first), sizeof(unsigned long long));
+		file.read((char*)(&addresses[i].first.second), sizeof(unsigned int));
+		file.read((char*)(&addresses[i].second), sizeof(unsigned int));
 	}
 
 	file.close();

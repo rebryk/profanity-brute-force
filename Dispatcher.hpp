@@ -23,6 +23,8 @@
 #define PROFANITY_SPEEDSAMPLES 20
 #define PROFANITY_MAX_SCORE 40
 
+typedef std::pair<unsigned long long, unsigned int> addr;
+
 class Dispatcher {
 	private:
 		class OpenCLException : public std::runtime_error {
@@ -64,9 +66,9 @@ class Dispatcher {
 			CLMemory<mp_number> m_memPrevLambda;
 			CLMemory<result> m_memResult;
 			CLMemory<cl_ulong4> m_memSeed;
-			CLMemory<cl_uint> m_memHashTable;
+			CLMemory<cl_ulong> m_memHashTable;
 			CLMemory<cl_uint> m_memPublicAddress;
-			CLMemory<cl_uint> m_memPublicBytes;
+			CLMemory<cl_ulong> m_memPublicBytes;
 
 			// Data parameters used in some modes
 			const Mode& m_mode;
@@ -85,26 +87,11 @@ class Dispatcher {
 			// Initialization
 			size_t m_sizeInitialized;
 			cl_event m_eventFinished;
-			
-			struct Address {
-				uint c, d, e;
-				
-				Address();
-				Address(uint c, uint d, uint e);
-				Address(uint x[]);
-				bool operator <(const Address& x) const;
-				bool operator==(const Address &other) const;
-			};
-
-			struct AddressHasher {
-				std::size_t operator()(const Address& x) const;
-			};
 
 			// HashTable Initialization
 			size_t m_iterHashTableInitialized;
 			size_t m_sizeHashTableInitialized;
-			// std::unordered_map<Address, int, AddressHasher> m_addressToIndex;
-			std::vector<Address> m_addresses;
+			std::vector<std::pair<addr, unsigned int>> m_addresses;
 		};
 
 	public:
@@ -115,11 +102,8 @@ class Dispatcher {
 		void run();
 		void runReverse();
 
-		void writeAddresses(std::string& filename, std::vector<Device::Address>& addresses);
-		void readAddresses(std::string& filename, std::vector<Device::Address>& addresses);
-
-		void writeBitset(std::string& filename, cl_ulong data[], size_t size);
-		void readBitset(std::string& filename, cl_ulong data[], size_t size);
+		void writeAddresses(std::string& filename, std::vector<std::pair<addr, unsigned int>>& addresses);
+		void readAddresses(std::string& filename, std::vector<std::pair<addr, unsigned int>>& addresses);
 
 	private:
 		void init();
