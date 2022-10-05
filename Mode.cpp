@@ -81,14 +81,14 @@ Mode Mode::reverse(const std::string strPublicAddress, const int steps, const bo
 	return r;
 }
 
-Mode Mode::hashTable(const bool extented) {
+Mode Mode::hashTable(const bool extented, const int skipY) {
 	Mode r;
 	r.name = "hashTable";
 	r.kernel = "profanity_score_reverse";
 	r.extended = extented;
 	r.cache = false;
 	r.skipX = 0;
-	r.skipY = 0;
+	r.skipY = skipY;
 	r.single = false;
 
 	return r;

@@ -23,7 +23,7 @@ class Mode {
 
 	public:
 		static Mode matching(const std::string strHex);
-		static Mode hashTable(const bool extended);
+		static Mode hashTable(const bool extended, const int skipY);
 		static Mode reverse(const std::string strPublicAddress, const int steps, const bool extended, const bool cache, const int skipX, const int skipY, const bool single);
 		
 		static Mode range(const cl_uchar min, const cl_uchar max);

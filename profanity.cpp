@@ -235,7 +235,7 @@ int main(int argc, char * * argv) {
 		} else if (bModeDoubles) {
 			mode = Mode::doubles();
 		} else if (bModeHashTable) {
-			mode = Mode::hashTable(bMode16Gb);
+			mode = Mode::hashTable(bMode16Gb, iModeSkipY);
 		} else if (bModeReverse != -1) {
 			if (strModeTarget.empty()) {
 				std::cout << "Specify a target public address with -t" << std::endl;

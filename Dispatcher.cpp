@@ -607,8 +607,6 @@ void Dispatcher::handleReverse(Device & d) {
 			unsigned int k2 = a[1];
 			unsigned int k3 = a[2];
 			
-			std::cout << std::endl << "Found candidate!" << std::endl << std::endl;
-			
 			size_t foundIndex = d.m_addresses.size();
 			for (size_t i = 0; i < d.m_addresses.size(); ++i) {
 				if (d.m_addresses[i].first.first == k1 && d.m_addresses[i].first.second == k2 && d.m_addresses[i].second == k3) {
