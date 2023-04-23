@@ -1,0 +1,3 @@
+eth-keys==0.4.0
+hexbytes==0.3.0
+eth-account==0.7.0
