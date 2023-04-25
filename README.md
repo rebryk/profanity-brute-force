@@ -1,13 +1,16 @@
 # Profanity Exploit
 
-## What is this?
-This is a clone of the original [profanity repo](https://github.com/johguse/profanity) that also includes an implementation of the exploit that allows the reconstruction of a private key from a wallet's public key if it was generated using Profanity.
-
-For example, I was able to brute-force my friend’s private key on my MacBook M1 Pro (16 Gb) in 26 minutes.
-
-You can read more about the exploit in [this tweet](https://twitter.com/yrebryk/status/1577685782621573122) or [this blog post](https://medium.com/@rebryk/how-to-hack-a-vanity-address-generated-with-profanity-ffad61ecacd2).
+This is a tool to exploit a profanity hack and reconstruct a private key from a wallet that was generated using [Profanity](https://github.com/johguse/profanity). I was able to brute-force my friend’s private key on my MacBook M1 Pro (16 Gb) in 26 minutes.
 
 <img width="1280" alt="etherscan" src="https://user-images.githubusercontent.com/4231665/233859198-53f1e2e2-68d0-4c1c-a94e-8322a1f897ce.png">
+
+## Profanity hack
+
+Profanity is an Ethereum vanity address generation tool that allows you to create wallets with fancy addresses. It generates addresses in parallel by exploiting GPU power with OpenCL.
+
+But the problem is that Profanity uses a random 32-bit vector to seed 256-bit private keys, which makes it possible to brute-force private keys for wallets that were generated using the tool.
+
+You can read more about the exploit in [this tweet](https://twitter.com/yrebryk/status/1577685782621573122) or [this blog post](https://medium.com/@rebryk/how-to-hack-a-vanity-address-generated-with-profanity-ffad61ecacd2).
 
 ## How to check if your wallet is affected?
 
