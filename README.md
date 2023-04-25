@@ -1,10 +1,10 @@
-# Profanity Exploit
+# Profanity Brute-force
 
 This is a tool to exploit a profanity hack and reconstruct a private key from a wallet that was generated using [Profanity](https://github.com/johguse/profanity). I was able to brute-force my friend’s private key on my MacBook M1 Pro (16 Gb) in 26 minutes.
 
 <img width="1280" alt="etherscan" src="https://user-images.githubusercontent.com/4231665/233859198-53f1e2e2-68d0-4c1c-a94e-8322a1f897ce.png">
 
-## Profanity hack
+## Profanity
 
 Profanity is an Ethereum vanity address generation tool that allows you to create wallets with fancy addresses. It generates addresses in parallel by exploiting GPU power with OpenCL.
 
