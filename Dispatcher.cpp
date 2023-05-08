@@ -123,7 +123,7 @@ cl_ulong4 Dispatcher::Device::createSeed() {
 #else
 	// Randomize private keys
 	std::random_device rd;
-	uint seed = rd();
+	unsigned int seed = rd();
 	seed = (1 << 18) + (seed) % (1 << 18);
 	std::mt19937_64 eng(seed);
 	std::uniform_int_distribution<cl_ulong> distr;
@@ -593,7 +593,7 @@ void Dispatcher::handleReverse(Device & d) {
 		result & r = d.m_memResult[i];
 	
 		if (r.found > 0) {
-			uint a[3];
+			unsigned int a[3];
 			const cl_uchar* h = r.foundHash;
 			for (size_t i = 0; i < 3; ++i) {
 				a[i] = 0;
